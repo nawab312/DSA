@@ -15,3 +15,7 @@ Given a string `s`, reverse the vowels in the string. Vowels are the characters 
 s = "hello"
 reverseVowels(s)  
 # Output: "holle"
+```
+
+### DSA Concept Used
+The solution uses the two-pointer technique to reverse vowels efficiently while keeping the other characters in place.

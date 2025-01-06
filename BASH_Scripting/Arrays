@@ -1,0 +1,20 @@
+Creating a simple list (array):
+my_list=("item1" "item2" "item3" "item4")
+
+Accessing elements in the list:
+echo ${my_list[0]}  # Prints the first element, "item1"
+echo ${my_list[1]}  # Prints the second element, "item2"
+
+Iterating over the list:
+for item in "${my_list[@]}"; do
+    echo "$item"
+done
+
+Getting the length of the list:
+length=${#my_list[@]}
+echo "The list has $length elements."
+
+Adding elements to the list:
+my_list+=("item5")
+echo ${my_list[@]}  # Now includes "item5"
+

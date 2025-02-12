@@ -1,0 +1,2 @@
+Command to check which process is using port 5432:
+sudo lsof -i :5432

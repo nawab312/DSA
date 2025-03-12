@@ -76,7 +76,7 @@ Hello, Siddy
 
 ### If-Else ###
 
-**Check if a number is positive or negative.**
+- Check if a number is positive or negative.
 ```bash
 #!/bin/bash
 echo "Enter a Number"
@@ -98,7 +98,7 @@ Enter a Number
 11 is Positive Number
 ```
 
-**Check If a File Exists**
+- Check If a File Exists
 - `-f` checks if the given file exists and is a regular file.
 
 ```bash

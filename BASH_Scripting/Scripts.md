@@ -53,7 +53,7 @@
   ```
 ### Variables and User Input ###
 
-**Store a value in a variable and ask for user input.**
+- Store a value in a variable and ask for user input.
 ```bash
 #!/bin/bash
 name="Alice"
@@ -99,7 +99,7 @@ Enter a Number
 ```
 
 - Check If a File Exists
-- `-f` checks if the given file exists and is a regular file.
+  - `-f` checks if the given file exists and is a regular file.
 
 ```bash
 #!/bin/bash
@@ -126,7 +126,7 @@ File doesnt Exists
 
 ### For Loop Example ###
 
-**Print numbers from 1 to 5 using a loop.**
+- Print numbers from 1 to 5 using a loop.
 ```bash
 #!/bin/bash
 for i in {1..5}; do
@@ -157,7 +157,7 @@ say_hello
 
 ### Command Line Arguments ###
 
-**Pass arguments to a script and print them.**
+- Pass arguments to a script and print them.
 ```bash
 #!/bin/bash
 echo "First argument: $1"
@@ -173,7 +173,7 @@ Second argument: Singh
 
 ### Arrays ###
 
-**Creating a simple list (array):**
+- Creating a simple list (array):
 
 ```bash
 #!/bin/bash

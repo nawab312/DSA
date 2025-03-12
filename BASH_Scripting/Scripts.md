@@ -170,3 +170,32 @@ echo "Second argument: $2"
 First argument: Siddharth
 Second argument: Singh
 ```
+
+### Arrays ###
+
+**Creating a simple list (array):**
+
+```bash
+#!/bin/bash
+my_list=("item1" "item2" "item3" "item4")
+
+echo ${my_list[0]}  # Prints the first element, "item1"
+echo ${my_list[1]}  # Prints the second element, "item2"
+
+Iterating over the list:
+for item in "${my_list[@]}"; do
+    echo "$item"
+done
+```
+
+- Getting the length of the list:
+  ```bash
+  length=${#my_list[@]}
+  echo "The list has $length elements."
+  ```
+
+- Adding elements to the list:
+  ```bash
+  my_list+=("item5")
+  echo ${my_list[@]}  # Now includes "item5"
+  ```

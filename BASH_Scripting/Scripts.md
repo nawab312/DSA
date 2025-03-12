@@ -1,3 +1,22 @@
+**`awk`** is a powerful text-processing tool used for pattern scanning, data extraction, and reporting in Linux. It works by reading input line by line, splitting it into fields, and applying actions based on conditions.
+- $0 → Refers to the entire line.
+- $1, $2, ... → Refer to the first, second, etc., fields (columns).
+- FS (Field Separator) → Defines how to split columns (default: space/tab).
+- ```bash
+  #users.txt
+  Alice 25
+  Bob 30
+  ```
+  ```bash
+  cat users.txt | awk '{ print "User:"$1, "Age:"$2 }'
+  ```
+  ```bash
+  #Output
+  User:Alice Age:25
+  User:Bob Age:30
+  ```
+
+
 **`xargs`** is a command in Linux that allows you to take standard input (stdin) and convert it into command-line arguments for another command. It's useful for handling large lists of arguments that might exceed the shell's command-line length limit.
 - ```bash
   echo "file1 file2 file3" | xargs rm

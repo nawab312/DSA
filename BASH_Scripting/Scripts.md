@@ -1,3 +1,20 @@
+**`xargs`** is a command in Linux that allows you to take standard input (stdin) and convert it into command-line arguments for another command. It's useful for handling large lists of arguments that might exceed the shell's command-line length limit.
+- ```bash
+  echo "file1 file2 file3" | xargs rm
+  ```
+  This deletes file1, file2, and file3 by passing them as arguments to rm.
+- ```bash
+  ls | xargs -n 2 echo
+  ```
+  ```bash
+  #Output
+  script1.sh script2.sh
+  script3.sh script4.sh
+  script5.sh
+  ```
+  Processes two filenames at a time.
+
+
 ### Variables and User Input ###
 
 **Store a value in a variable and ask for user input.**

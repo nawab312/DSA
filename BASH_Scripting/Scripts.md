@@ -30,11 +30,11 @@ echo "Enter a Number"
 read num
 
 if [ $num -gt 0 ]; then
-	echo "$num is Positive Number"
+  echo "$num is Positive Number"
 elif [ $num -lt 0 ]; then
-	echo "$num is Negative Number"
+  echo "$num is Negative Number"
 else
-	echo "$num is Zero"
+  echo "$num is Zero"
 fi
 ```
 
@@ -54,9 +54,9 @@ echo "Enter the file Name"
 read file
 
 if [ -f $file ]; then
-	echo "File Exists"
+  echo "File Exists"
 else 
-	echo "File doesnt Exists"
+  echo "File doesnt Exists"
 fi
 ```
 
@@ -77,7 +77,7 @@ File doesnt Exists
 ```bash
 #!/bin/bash
 for i in {1..5}; do
-    echo "Number: $i"
+  echo "Number: $i"
 done
 ```
 

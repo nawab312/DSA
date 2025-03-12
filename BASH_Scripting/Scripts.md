@@ -13,8 +13,21 @@
   script5.sh
   ```
   Processes two filenames at a time.
-
-
+- ```bash
+  ls | xargs -I {} echo {}
+  ```
+  ```bash
+  #Output
+  script1.sh
+  script2.sh
+  script3.sh
+  script4.sh
+  script5.sh
+  ```
+  Each `{}` is replaced with an individual file.
+- ```bash
+  find . -name "*.log" | xargs rm
+  ```
 ### Variables and User Input ###
 
 **Store a value in a variable and ask for user input.**

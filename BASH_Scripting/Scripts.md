@@ -15,6 +15,10 @@
   User:Alice Age:25
   User:Bob Age:30
   ```
+- List all the files of Date *18 Feb*
+  ```bash
+  ls -lart | awk '$6 == "Feb" && $7 == "18" {print $9}'
+  ```
 
 
 **`xargs`** is a command in Linux that allows you to take standard input (stdin) and convert it into command-line arguments for another command. It's useful for handling large lists of arguments that might exceed the shell's command-line length limit.

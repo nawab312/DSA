@@ -89,3 +89,31 @@ Number 3
 Number 4
 Number 5
 ```
+
+### Functions ###
+
+**Create and call a function.**
+```bash
+#!/bin/bash
+say_hello() {
+    echo "Hello, welcome to Bash scripting!"
+}
+
+say_hello
+```
+
+### Command Line Arguments ###
+
+**Pass arguments to a script and print them.**
+```bash
+#!/bin/bash
+echo "First argument: $1"
+echo "Second argument: $2"
+```
+
+```bash
+#Output
+/script1.sh Siddharth Singh
+First argument: Siddharth
+Second argument: Singh
+```

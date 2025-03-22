@@ -1,3 +1,27 @@
+**strace**
+
+The `strace` command in Linux is a *diagnostic tool( used to trace system calls and signals made by a process. It helps debug and monitor how an application interacts with the kernel, allowing you to track file operations, network calls, and potential errors like segmentation faults. It's particularly useful for identifying issues like misbehaving system interactions or performance bottlenecks.
+- Example: Suppose you have a program myapp and you want to trace its system calls.
+```bash
+strace ./myapp
+```
+This will output all system calls made by myapp, showing things like file operations, memory allocations, and network requests. For example, you might see something like this:
+```bash
+open("file.txt", O_RDONLY)             = 3
+read(3, "Hello, World!", 13)           = 13
+write(1, "Hello, World!", 13)          = 13
+close(3)                               = 0
+```
+- `open` opens the file file.txt for reading.
+- `read` reads data from the file.
+- `write` writes the data to standard output (the terminal).
+- `close` closes the file descriptor.
+
+**nohup**
+- *Usage*: `nohup` stands for "no hangup," and it is used to run a command that will continue executing even after the user logs out or the terminal session ends.
+- *How It Works*: It prevents the process from receiving the SIGHUP (hangup) signal when the terminal session is closed. This allows the process to keep running in the background.
+- *Typical Command*: `nohup <command> &`
+
 ### iptables ###
 `iptables` is a user-space utility program that allows a system administrator to configure the IP packet filter rules of the Linux kernel. It is commonly used for:
 - **Packet filtering:** Allows you to control the flow of network traffic based on various criteria (e.g., source IP, destination IP, protocol type, ports).

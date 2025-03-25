@@ -199,3 +199,26 @@ done
   my_list+=("item5")
   echo ${my_list[@]}  # Now includes "item5"
   ```
+
+**Check if the nginx process is running, start it if it's not, and log the action with a timestamp**
+
+```bash
+#!/bin/bash
+
+# Define process name and log file
+PROCESS="nginx"
+LOG_FILE="/var/log/process_monitor.log"
+
+# Check if the process is running
+if ! pgrep -x "$PROCESS" > /dev/null; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $PROCESS is not running. Restarting..." >> "$LOG_FILE"
+    systemctl start "$PROCESS"
+    if [ $? -eq 0 ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - $PROCESS successfully started." >> "$LOG_FILE"
+    else
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - Failed to start $PROCESS." >> "$LOG_FILE"
+    fi
+else
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $PROCESS is running." >> "$LOG_FILE"
+fi
+```

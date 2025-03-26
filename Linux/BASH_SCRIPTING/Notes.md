@@ -1,3 +1,25 @@
+**`sar`** (System Activity Reporter) command is a powerful Linux tool for monitoring system performance, including CPU, memory, disk, and network usage.
+- Check CPU Usage
+ - `-u` → CPU usage
+ - `5` → Collect data every 5 seconds
+ - `3` → Repeat 3 times
+ - `%user` → CPU used by user processes
+ - `%system` → CPU used by kernel
+ - `%iowait` → CPU waiting for I/O
+ - `%idle` → Free CPU percentage
+
+```bash
+sar -u 5 3
+12:30:01 AM  CPU  %user  %nice  %system  %iowait  %steal  %idle
+12:30:06 AM  all   5.23   0.00     2.11     0.45    0.00  92.21
+12:30:11 AM  all   4.89   0.00     1.98     0.33    0.00  92.80
+```
+
+- Check Memory Usage
+```bash
+sar -r 5 3
+```
+
 **`awk`** is a powerful text-processing tool used for pattern scanning, data extraction, and reporting in Linux. It works by reading input line by line, splitting it into fields, and applying actions based on conditions.
 - $0 → Refers to the entire line.
 - $1, $2, ... → Refer to the first, second, etc., fields (columns).

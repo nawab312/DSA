@@ -1,12 +1,12 @@
 **`sar`** (System Activity Reporter) command is a powerful Linux tool for monitoring system performance, including CPU, memory, disk, and network usage.
 - Check CPU Usage
- - `-u` → CPU usage
- - `5` → Collect data every 5 seconds
- - `3` → Repeat 3 times
- - `%user` → CPU used by user processes
- - `%system` → CPU used by kernel
- - `%iowait` → CPU waiting for I/O
- - `%idle` → Free CPU percentage
+  - `-u` → CPU usage
+  - `5` → Collect data every 5 seconds
+  - `3` → Repeat 3 times
+  - `%user` → CPU used by user processes
+  - `%system` → CPU used by kernel
+  - `%iowait` → CPU waiting for I/O
+  - `%idle` → Free CPU percentage
 
 ```bash
 sar -u 5 3

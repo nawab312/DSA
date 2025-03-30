@@ -43,6 +43,12 @@ print(student.get("age"))  # Output: 25
 print(student.get("marks", 100) # As Marks key not in Dictionary so it will return 100
 ```
 
+*Looping Through a Dictionary*
+```python
+for key, value in student.items():
+    print(f"{key}: {value}")
+``
+
 ---
 
 **Slicing [START:STOP:STEP]**

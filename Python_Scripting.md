@@ -33,10 +33,14 @@ print(student)
 # Output: {'name': 'Alice', 'age': 25, 'course': 'Computer Science'}
 ```
 
-- Accessing Values. `get()` is safer than `[]` because it returns None if the key is missing instead of throwing an error.
+*Accessing Values*
+- `get()` is safer than `[]` because it returns None if the key is missing instead of throwing an error.
 ```python
 print(student["name"])   # Output: Alice
 print(student.get("age"))  # Output: 25
+```
+```python
+print(student.get("marks", 100) # As Marks key not in Dictionary so it will return 100
 ```
 
 ---

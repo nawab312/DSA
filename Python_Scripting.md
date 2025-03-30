@@ -47,7 +47,7 @@ print(student.get("marks", 100) # As Marks key not in Dictionary so it will retu
 ```python
 for key, value in student.items():
     print(f"{key}: {value}")
-``
+```
 
 ---
 

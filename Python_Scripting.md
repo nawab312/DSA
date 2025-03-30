@@ -1,3 +1,13 @@
+**input()** function is used to take user input from the keyboard. By default, it returns the input as a string.
+```python
+name = input("Enter your name: ")
+print("Hello, " + name + "!")
+```
+```python
+age = int(input("Enter your age: "))  # Converts input to an integer
+height = float(input("Enter your height in meters: "))  # Converts input to a float
+```
+
 **seek()** method is used with file objects to change the current file position. This is useful when you need to move to a specific location in a file for reading or writing.
 ```python
 file.seek(offset, whence)

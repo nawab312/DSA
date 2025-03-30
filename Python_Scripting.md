@@ -16,6 +16,29 @@
   ```
 ---
 
+### Python Dicitonary ###
+A dictionary in Python is a collection of key-value pairs, where each key is unique and used to access its corresponding value.
+
+```python
+# Empty dictionary
+my_dict = {}
+
+# Dictionary with values
+student = {
+    "name": "Alice",
+    "age": 25,
+    "course": "Computer Science"
+}
+print(student)  
+# Output: {'name': 'Alice', 'age': 25, 'course': 'Computer Science'}
+```
+
+- Accessing Values. `get()` is safer than `[]` because it returns None if the key is missing instead of throwing an error.
+```python
+print(student["name"])   # Output: Alice
+print(student.get("age"))  # Output: 25
+```
+
 **Slicing [START:STOP:STEP]**
 - start: Where to start slicing (default is 0).
 - stop: Where to stop slicing (default is len(sequence)).

@@ -20,29 +20,6 @@ sar -u 5 3
 sar -r 5 3
 ```
 
-**`awk`** is a powerful text-processing tool used for pattern scanning, data extraction, and reporting in Linux. It works by reading input line by line, splitting it into fields, and applying actions based on conditions.
-- $0 → Refers to the entire line.
-- $1, $2, ... → Refer to the first, second, etc., fields (columns).
-- FS (Field Separator) → Defines how to split columns (default: space/tab).
-- ```bash
-  #users.txt
-  Alice 25
-  Bob 30
-  ```
-  ```bash
-  cat users.txt | awk '{ print "User:"$1, "Age:"$2 }'
-  ```
-  ```bash
-  #Output
-  User:Alice Age:25
-  User:Bob Age:30
-  ```
-- List all the files of Date *18 Feb*
-  ```bash
-  ls -lart | awk '$6 == "Feb" && $7 == "18" {print $9}'
-  ```
-
-
 **`xargs`** is a command in Linux that allows you to take standard input (stdin) and convert it into command-line arguments for another command. It's useful for handling large lists of arguments that might exceed the shell's command-line length limit.
 - ```bash
   echo "file1 file2 file3" | xargs rm
@@ -76,7 +53,9 @@ sar -r 5 3
 
 ---
 
-### Linux File System & Management ###
+## Linux File System & Management ##
+
+### File & Directory Commands ###
 
 **`find`**
 
@@ -106,6 +85,42 @@ find /home/user/ -type f -exec ls -lh {} +
 
 ---
 
+## Linux Scripting ##
+
+### Text Processing Tools ###
+
+**`awk`** is a powerful text-processing tool used for pattern scanning, data extraction, and reporting in Linux. It works by reading input line by line, splitting it into fields, and applying actions based on conditions.
+- $0 → Refers to the entire line.
+- $1, $2, ... → Refer to the first, second, etc., fields (columns).
+- FS (Field Separator) → Defines how to split columns (default: space/tab).
+- ```bash
+  #users.txt
+  Alice 25
+  Bob 30
+  ```
+  ```bash
+  cat users.txt | awk '{ print "User:"$1, "Age:"$2 }'
+  ```
+  ```bash
+  #Output
+  User:Alice Age:25
+  User:Bob Age:30
+  ```
+- List all the files of Date *18 Feb*
+  ```bash
+  ls -lart | awk '$6 == "Feb" && $7 == "18" {print $9}'
+  ```
+
+**`sort`** command in Linux is used to arrange lines of text files in a specified order. By default, it sorts in ascending order (A to Z, 0 to 9), but it can be customized for descending order, numerical sorting, case-insensitive sorting, and more
+```bash
+sort [OPTIONS] <file>
+sort [OPTIONS] <file>
+```
+
+![image](https://github.com/user-attachments/assets/f53f0242-ef74-42d9-a64e-7a67fb88cdfe)
+
+
+---
 
 ### Variables and User Input ###
 

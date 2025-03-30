@@ -73,6 +73,40 @@ sar -r 5 3
 - ```bash
   find . -name "*.log" | xargs rm
   ```
+
+---
+
+### Linux File System & Management ###
+
+**`find`**
+
+The find command in Linux is used to search for files and directories based on various criteria such as name, size, type, permissions, and modification time
+```bash
+find <directory> <options> <action>
+```
+
+![image](https://github.com/user-attachments/assets/b0082701-79a3-449c-935d-48f57169c21c)
+
+The `-exec` option in the `find` command is used to execute a command on each file or directory found. It allows you to perform actions like deleting, moving, or modifying files that match specific criteria.
+```bash
+find <directory> <conditions> -exec <command> {} \;
+```
+- {} → Placeholder for each found file or directory.
+- \; → Terminates the command execution.
+
+Delete all .log files older than 7 days:
+```bash
+find /var/logs -type f -name "*.log* -mtime +7 -exec rm {} \;
+```
+
+Using + instead of \; executes the command in batches (better performance).
+```bash
+find /home/user/ -type f -exec ls -lh {} +
+```
+
+---
+
+
 ### Variables and User Input ###
 
 - Store a value in a variable and ask for user input.

@@ -120,6 +120,8 @@ print(result.stdout)  # Prints the output of the 'ls -l' command
 - `capture_output=True` → Captures the output (instead of printing it directly).
 - `text=True` → Returns output as a string instead of bytes.
 
+---
+
 You need to write a Python script to monitor a log file in real time and trigger an alert if a specific keyword (e.g., `"ERROR"`) appears.
 - Continuously monitor a log file (e.g., `/var/log/syslog`) for new entries.
 - If the word "ERROR" appears, print an alert message and write the event to another file (`error_log.txt`).

@@ -57,9 +57,33 @@ sar -r 5 3
 
 ### File & Directory Commands ###
 
-**`find`**
+The **`ls`** (list) command is used to list files and directories in Linux.
 
-The find command in Linux is used to search for files and directories based on various criteria such as name, size, type, permissions, and modification time
+![image](https://github.com/user-attachments/assets/1e26b883-0281-47f1-af04-31df3fba16a3)
+
+
+The **`head`** and **`tail`** commands are used for viewing specific parts of a file or command output in Linux.
+```bash
+head -n <number_of_lines> <file>
+```
+- View the first 10 lines of a file (default)
+  ```bash
+  head /etc/passwd
+  ```
+- View the first 5 lines of a file:
+  ```bash
+  head -5 /var/log/syslog
+  ```
+- View the first 10 lines of the output of a command:
+  ```bash
+  ls -l | head -10
+  ```
+- Extract lines 5 to 10 from a file:
+  ```bash
+  head -10 /etc/passwd | tail -5
+  ```
+
+The **`find`** command in Linux is used to search for files and directories based on various criteria such as name, size, type, permissions, and modification time
 ```bash
 find <directory> <options> <action>
 ```

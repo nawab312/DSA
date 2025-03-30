@@ -39,6 +39,8 @@ print(student["name"])   # Output: Alice
 print(student.get("age"))  # Output: 25
 ```
 
+---
+
 **Slicing [START:STOP:STEP]**
 - start: Where to start slicing (default is 0).
 - stop: Where to stop slicing (default is len(sequence)).

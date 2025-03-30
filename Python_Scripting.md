@@ -1,3 +1,33 @@
+### Python Strings ###
+- **len() – Returns the length of a string**
+  ```python
+  text = "Hello, World!"
+  print(len(text))  # Output: 13
+  ```
+- **lower() & upper()** – Converts a string to lowercase or uppercase
+  ```python
+  print(text.lower())  # Output: hello, world!
+  print(text.upper())  # Output: HELLO, WORLD!
+  ```
+- **strip()** – Removes leading and trailing spaces
+  ```python
+  text = "   Hello   "
+  print(text.strip())  # Output: "Hello"
+  ```
+---
+
+**Slicing [START:STOP:STEP]**
+- start: Where to start slicing (default is 0).
+- stop: Where to stop slicing (default is len(sequence)).
+- step: The increment (negative values reverse the sequence).
+
+*String Reversal*
+```python
+text = "Python"
+reversed_text = text[::-1]
+print(reversed_text)  # Output: nohtyP
+```
+
 **input()** function is used to take user input from the keyboard. By default, it returns the input as a string.
 ```python
 name = input("Enter your name: ")
@@ -27,10 +57,6 @@ with open("example.txt", "a+") as f:
 **readline()** is a built-in method in Python used to read one line at a time from a file. The file pointer moves to the next line after reading.
 ```python
 file.readline()
-```
-**strip()** method in Python is used to remove leading and trailing whitespace characters (spaces, newlines, tabs) from a string.
-```python
-line.strip()
 ```
 
 **time**

@@ -16,6 +16,56 @@
   ```
 ---
 
+### Python Tuples ###
+A tuple is an immutable (unchangeable) ordered collection of elements in Python. It is similar to a list, but unlike lists, tuples cannot be modified after creation.
+
+*Creating a Tuple*
+```python
+# Different ways to create a tuple
+t1 = (1, 2, 3)       # With parentheses
+t2 = 1, 2, 3         # Without parentheses
+t3 = tuple([1, 2, 3]) # Using the tuple() constructor
+t4 = ("hello",)      # Single-element tuple (comma is needed)
+
+print(t1)  # (1, 2, 3)
+print(t2)  # (1, 2, 3)
+print(t3)  # (1, 2, 3)
+print(t4)  # ('hello',)
+```
+
+*Accessing Elements in a Tuple*
+```python
+t = (10, 20, 30, 40)
+
+print(t[0])  # 10
+print(t[2])  # 30
+```
+
+*Tuple Slicing*
+```python
+t = (10, 20, 30, 40, 50, 60)
+
+print(t[1:4])   # (20, 30, 40) -> From index 1 to 3
+print(t[:3])    # (10, 20, 30) -> First three elements
+print(t[3:])    # (40, 50, 60) -> From index 3 to end
+print(t[::-1])  # (60, 50, 40, 30, 20, 10) -> Reversed tuple
+```
+
+*Tuple Unpacking*
+```python
+t = (100, 200, 300)
+
+a, b, c = t  # Unpacking
+print(a)  # 100
+print(b)  # 200
+print(c)  # 300
+```
+```python
+t = (1, 2, 3)
+a, _, c = t  # Ignore the second value
+print(a, c)  # 1 3
+```
+
 ### Python Dicitonary ###
 A dictionary in Python is a collection of key-value pairs, where each key is unique and used to access its corresponding value.
 

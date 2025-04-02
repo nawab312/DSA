@@ -99,7 +99,7 @@ find <directory> <conditions> -exec <command> {} \;
 
 Delete all .log files older than 7 days:
 ```bash
-find /var/logs -type f -name "*.log* -mtime +7 -exec rm {} \;
+find /var/logs -type f -name "*.log*" -mtime +7 -exec rm {} \;
 ```
 
 Using + instead of \; executes the command in batches (better performance).

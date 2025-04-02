@@ -1,25 +1,3 @@
-**`sar`** (System Activity Reporter) command is a powerful Linux tool for monitoring system performance, including CPU, memory, disk, and network usage.
-- Check CPU Usage
-  - `-u` → CPU usage
-  - `5` → Collect data every 5 seconds
-  - `3` → Repeat 3 times
-  - `%user` → CPU used by user processes
-  - `%system` → CPU used by kernel
-  - `%iowait` → CPU waiting for I/O
-  - `%idle` → Free CPU percentage
-
-```bash
-sar -u 5 3
-12:30:01 AM  CPU  %user  %nice  %system  %iowait  %steal  %idle
-12:30:06 AM  all   5.23   0.00     2.11     0.45    0.00  92.21
-12:30:11 AM  all   4.89   0.00     1.98     0.33    0.00  92.80
-```
-
-- Check Memory Usage
-```bash
-sar -r 5 3
-```
-
 **`xargs`** is a command in Linux that allows you to take standard input (stdin) and convert it into command-line arguments for another command. It's useful for handling large lists of arguments that might exceed the shell's command-line length limit.
 - ```bash
   echo "file1 file2 file3" | xargs rm
@@ -106,6 +84,54 @@ Using + instead of \; executes the command in batches (better performance).
 ```bash
 find /home/user/ -type f -exec ls -lh {} +
 ```
+
+---
+
+## Linux Process Management ##
+
+### System Resource Usage ###
+**`sar`** (System Activity Reporter) command is a powerful Linux tool for monitoring system performance, including CPU, memory, disk, and network usage.
+- Check CPU Usage
+  - `-u` → CPU usage
+  - `5` → Collect data every 5 seconds
+  - `3` → Repeat 3 times
+  - `%user` → CPU used by user processes
+  - `%system` → CPU used by kernel
+  - `%iowait` → CPU waiting for I/O
+  - `%idle` → Free CPU percentage
+
+```bash
+sar -u 5 3
+12:30:01 AM  CPU  %user  %nice  %system  %iowait  %steal  %idle
+12:30:06 AM  all   5.23   0.00     2.11     0.45    0.00  92.21
+12:30:11 AM  all   4.89   0.00     1.98     0.33    0.00  92.80
+```
+
+- Check Memory Usage
+```bash
+sar -r 5 3
+```
+
+**`iostat`** command in Linux is used for monitoring system input/output (I/O) device loading by observing the time devices are active in relation to their average transfer rates. It provides insights into CPU utilization and disk I/O statistics
+```bash
+iostat [options] [interval] [count]
+```
+- Basic CPU and Disk I/O Statistics. Displays CPU usage and disk I/O stats since the system was last rebooted.
+  ```bash
+  iostat
+  ```
+- Displaying Statistics in Human-Readable Format. Shows output in a human-readable format (e.g., using KB/MB instead of sectors).
+  ```bash
+  iostat -h
+  ```
+- Displaying CPU Utilization Only
+  ```bash
+  iostat -c
+  ```
+- Displaying Device Utilization Only. Displays only disk I/O statistics.
+  ```bash
+  iostat -d
+  ```
 
 ---
 

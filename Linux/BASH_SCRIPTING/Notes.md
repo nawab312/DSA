@@ -196,7 +196,7 @@ script3.sh
 File doesnt Exists
 ```
 
-- `(( ))` is used for arithmetic operations and comparisons in `bash` (and some other shells). It's a more efficient and readable way of performing arithmetic comparisons compared to using `[ ]` or `test`.
+- `(( ))` is used for arithmetic operations (ONLY FOR INTEGERS) and comparisons in `bash` (and some other shells). It's a more efficient and readable way of performing arithmetic comparisons compared to using `[ ]` or `test`.
   - You don't need to put a `$` before variables inside `(( ))` (e.g., ((a + b)) instead of (( $a + $b ))).
   - It can also be used for comparison operations like equality (`==`), inequality (`!=`), greater than (`>`), less than (`<`), and more.
   - No need for -eq, -lt, -gt, etc., when using (( )).
@@ -209,6 +209,15 @@ if (( a < b )); then
 fi
 ```
 
+- `bc` stands for Basic Calculator, and it's a command-line utility used for performing arithmetic operations in Unix-based systems. It can handle both integer and floating-point numbers. The `-l` option stands for "math library", and it enables bc to perform operations involving floating-point arithmetic.
+```bash
+echo "2.5 > 2" | bc -l
+1
+echo "2.5 < 2" | bc -l
+0
+echo "2.5 + 2.4" | bc -l
+4.9
+```
 
 ### Text Processing Tools ###
 

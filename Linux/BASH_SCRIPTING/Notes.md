@@ -133,6 +133,14 @@ iostat [options] [interval] [count]
   iostat -d
   ```
 
+
+### System Uptime ###
+The **`uptime`** command in Linux provides information about how long the system has been running, along with the system load averages over the last 1, 5, and 15 minutes. It is commonly used to quickly check the system’s uptime and load.
+```bash
+uptime
+ 17:51:11 up 5 days,  1:55,  1 user,  load average: 1.13, 1.04, 0.81
+```
+
 ---
 
 ## Linux Scripting ##

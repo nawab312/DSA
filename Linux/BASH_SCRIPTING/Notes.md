@@ -145,6 +145,71 @@ uptime
 
 ## Linux Scripting ##
 
+### Bash Scripting ###
+**If-Else**
+
+- Check if a number is positive or negative.
+```bash
+#!/bin/bash
+echo "Enter a Number"
+read num
+
+if [ $num -gt 0 ]; then
+  echo "$num is Positive Number"
+elif [ $num -lt 0 ]; then
+  echo "$num is Negative Number"
+else
+  echo "$num is Zero"
+fi
+```
+
+```bash
+#Output
+Enter a Number
+11
+11 is Positive Number
+```
+
+- Check If a File Exists
+  - `-f` checks if the given file exists and is a regular file.
+
+```bash
+#!/bin/bash
+echo "Enter the file Name"
+read file
+
+if [ -f $file ]; then
+  echo "File Exists"
+else 
+  echo "File doesnt Exists"
+fi
+```
+
+```bash
+#Output
+Enter the file Name
+script1.sh
+File Exists
+
+Enter the file Name
+script3.sh
+File doesnt Exists
+```
+
+- `(( ))` is used for arithmetic operations and comparisons in `bash` (and some other shells). It's a more efficient and readable way of performing arithmetic comparisons compared to using `[ ]` or `test`.
+  - You don't need to put a `$` before variables inside `(( ))` (e.g., ((a + b)) instead of (( $a + $b ))).
+  - It can also be used for comparison operations like equality (`==`), inequality (`!=`), greater than (`>`), less than (`<`), and more.
+  - No need for -eq, -lt, -gt, etc., when using (( )).
+```bash
+a=10
+b=20
+
+if (( a < b )); then
+    echo "a is less than b"
+fi
+```
+
+
 ### Text Processing Tools ###
 
 **`awk`** is a powerful text-processing tool used for pattern scanning, data extraction, and reporting in Linux. It works by reading input line by line, splitting it into fields, and applying actions based on conditions.
@@ -203,55 +268,6 @@ Siddy
 Hello, Siddy
 ```
 
-### If-Else ###
-
-- Check if a number is positive or negative.
-```bash
-#!/bin/bash
-echo "Enter a Number"
-read num
-
-if [ $num -gt 0 ]; then
-  echo "$num is Positive Number"
-elif [ $num -lt 0 ]; then
-  echo "$num is Negative Number"
-else
-  echo "$num is Zero"
-fi
-```
-
-```bash
-#Output
-Enter a Number
-11
-11 is Positive Number
-```
-
-- Check If a File Exists
-  - `-f` checks if the given file exists and is a regular file.
-
-```bash
-#!/bin/bash
-echo "Enter the file Name"
-read file
-
-if [ -f $file ]; then
-  echo "File Exists"
-else 
-  echo "File doesnt Exists"
-fi
-```
-
-```bash
-#Output
-Enter the file Name
-script1.sh
-File Exists
-
-Enter the file Name
-script3.sh
-File doesnt Exists
-```
 
 ### For Loop Example ###
 

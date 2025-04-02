@@ -152,7 +152,7 @@ time.sleep(3) # Pause for 3 seconds
 
 ---
 
-The subprocess module in Python is used to execute shell commands, interact with system processes, and capture their output.
+The **subprocess** module in Python is used to execute shell commands, interact with system processes, and capture their output.
 ```python
 import subprocess
 
@@ -178,6 +178,39 @@ except subprocess.CalledProcessError:
     print("Command failed!")
 ```
 - `check=True` raises an exception if the command fails.
+---
+
+The **shutil** module is used for high-level file operations such as copying, moving, and deleting files and directories. Below are common shutil commands with examples
+
+*Copy Files*
+```python
+import shutil
+
+shutil.copy("source.txt", "destination.txt")  # Copies file
+shutil.copy2("source.txt", "destination2.txt")  # Copies file with metadata
+```
+
+*Copy Directories*
+```python
+shutil.copytree("source_folder", "backup_folder")
+```
+
+*Move/Rename Files and Directories*
+```python
+shutil.move("file.txt", "new_folder/file.txt")
+```
+
+*Delete Files and Directories*
+```python
+shutil.rmtree("unwanted_folder")
+```
+
+*Disk Usage Statistics*
+```python
+total, used, free = shutil.disk_usage("/")
+print(f"Total: {total}, Used: {used}, Free: {free}")
+```
+
 ---
 
 You need to write a Python script to monitor a log file in real time and trigger an alert if a specific keyword (e.g., `"ERROR"`) appears.

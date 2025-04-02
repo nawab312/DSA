@@ -164,7 +164,7 @@ Hello, DevOps!
 
 *Capturing Command Output (capture_output=True)*
 ```python
-result = subprocess.run(["ls", "-l"], capture_output=True, text=True)
+result = subprocess.run(["ls", "-l"], capture_output=True, text=True).stdout.strip()
 print(result.stdout)  # Prints the output of the 'ls -l' command
 ```
 - `capture_output=True` → Captures the output (instead of printing it directly).

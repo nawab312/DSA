@@ -242,6 +242,14 @@ echo "2.5 + 2.4" | bc -l
   ```bash
   ls -lart | awk '$6 == "Feb" && $7 == "18" {print $9}'
   ```
+- The `-v` option in `awk` is used to assign values to variables before the `awk` program begins processing the input data
+  ```bash
+  awk -v var_name=value 'awk_program' input_file
+  ```
+  ```bash
+  awk -v threshold=50 '$1 > threshold {print $0}' data.txt
+  ```
+  - `$1 > threshold { print $0 }`: This checks if the first column of data.txt is greater than threshold. If it is, the entire line ($0) is printed. 
 
 **`sort`** command in Linux is used to arrange lines of text files in a specified order. By default, it sorts in ascending order (A to Z, 0 to 9), but it can be customized for descending order, numerical sorting, case-insensitive sorting, and more
 ```bash

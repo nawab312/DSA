@@ -213,41 +213,50 @@ print(f"Total: {total}, Used: {used}, Free: {free}")
 
 ---
 
-You need to write a Python script to monitor a log file in real time and trigger an alert if a specific keyword (e.g., `"ERROR"`) appears.
-- Continuously monitor a log file (e.g., `/var/log/syslog`) for new entries.
-- If the word "ERROR" appears, print an alert message and write the event to another file (`error_log.txt`).
-- Implement exception handling to avoid crashes if the log file is rotated or deleted.
+### Threading in Python ###
+Threading is a way to run multiple operations at the same time within a single Python process — like multitasking inside your code.
+
+**Why Use Threading?**
+
+Imagine you're:
+- Watching multiple log files (log1, log2, log3)
+- Each file is getting updated constantly
+
+Without threading:
+- You'd have to monitor one file at a time (slow, inefficient)
+
+With threading:
+- You can monitor all files at once, each in its own thread
+- Faster, real-time performance for tasks like log monitoring, web scraping, background jobs, etc.
+
+- *Python has a Global Interpreter Lock (GIL), so CPU-bound tasks aren't fully parallel with threads — but I/O-bound tasks (like log monitoring, file read/write, network calls) work great with threading.*
+- *For CPU-heavy tasks, use `multiprocessing` instead of `threading`.*
+
 ```python
-import os
+import threading
 import time
 
-LOG_FILE = "/var/log/syslog"
-ERROR_LOG_FILE = "error_log.txt"
-KEYWORD = "ERROR"
+def say_hello():
+    for i in range(5):
+        print("Hello")
+        time.sleep(1)
 
-def monitor_log(file_path):
-    try:
-        with open(file_path, "r") as log_file:
-            log_file.seek(0, os.SEEK_END)
-            
-            while True:
-                line = log_file.readline()
-                if not line:
-                    time.sleep(1)
-                    continue
-                if KEYWORD in line:
-                    print(f"Alert Keyword: {KEYWORD} detected: {line.strip()}")
-                    with open(ERROR_LOG_FILE, "a") as error_file:
-                        error_file.write(line)
-    except FileNotFoundError:
-        print(f"[ERROR] Log File {file_path} not found, Retrying in 5 Seconds ...")
-        time.sleep(5)
-        monitor_log(file_path)
-    except PermissionError:
-        print(f"[ERROR] Permission Denied while accessing File {file_path}")
-    except Exception as e:
-        print(f"[ERROR] Unexpected Error: {e}")
+def say_bye():
+    for i in range(5):
+        print("Bye")
 
-if __name__ == "__main__":
-    monitor_log(LOG_FILE)
+# Run Both functions in Parallel using Threads
+t1 = threading.Thread(target=say_hello)
+t2 = threading.Thread(target=say_bye)
+
+t1.start()
+t2.start()
+
+t1.join()
+t2.join()
+
+print("Done")
 ```
+
+---
+

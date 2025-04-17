@@ -255,3 +255,29 @@ traceroute to google.com (142.250.195.14), 30 hops max, 60 byte packets
 
 **Use telnet or nc (netcat) to test port connectivity:**
 
+### DNS Resolution ###
+DNS (Domain Name System) resolution is the process of converting a domain name (like google.com) into an IP address (like 142.250.182.14) that computers use to communicate.
+
+How DNS Resolution Works in Linux
+- User Requests a Domain `ping google.com`
+- Linux first checks the file: `/etc/hosts`
+  - This file can have static IP ↔ domain mappings. For example:
+  ```bash
+  127.0.0.1   localhost
+  192.168.1.100 myserver.local
+  ```
+- Check `/etc/nsswitch.conf`
+  - This config tells Linux the order of lookup for name resolution.
+  - Example line in `/etc/nsswitch.conf`: `hosts: files dns` . This means:
+  - Check local `files` (i.e., `/etc/hosts`)
+  - Then try `dns` (using `/etc/resolv.conf`)
+- Use DNS Servers from `/etc/resolv.conf`
+  - If the name wasn’t resolved using `/etc/hosts`, Linux uses the DNS servers listed in: `/etc/resolv.conf`. These are recursive resolvers like Google DNS or Cloudflare DNS. Linux sends a query to them.
+  ```bash
+  nameserver 8.8.8.8
+  nameserver 1.1.1.1
+  ```
+- If in `/etc/resolv.conf` it is `nameserver 127.0.0.53`, it does not mean your system is resolving DNS queries entirely on its own. Instead, it means your Linux system is using a *local DNS stub resolver*—usually provided by `systemd-resolved`.
+- `127.0.0.53` is a loopback IP address (just like 127.0.0.1). It is a local stub resolver that listens on port 53 (DNS port)
+- Where does systemd-resolved forward the query. To check the actual DNS servers it will contact (like 8.8.8.8), run: `resolvectl status`. This will show: The DNS servers used for each interface (Ethernet, Wi-Fi, etc.)
+

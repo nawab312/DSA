@@ -151,3 +151,107 @@ docker0          bridge    connected (externally)  docker0
 p2p-dev-wlo1     wifi-p2p  disconnected            --                        
 enp3s0           ethernet  unavailable             --                  
 ```
+
+### Firewall Management ###
+
+**iptables – The Classic Firewall Tool**
+- iptables is a user-space utility to configure the Linux kernel firewall implemented in Netfilter. It provides powerful and fine-grained control over inbound/outbound traffic. 
+- Characteristics:
+ - Low-level, rule-based
+ - Persistent rules need manual saving/restoring
+ - Complex syntax
+
+**firewalld – Modern, Zone-Based Firewall**
+- A dynamic firewall manager using `iptables` or `nftables` in the background. Easier to use and script than raw iptables.
+- Characteristics:
+ - Zone-based (trusted, public, etc.)
+ - Dynamic rule updates (no restart needed)
+ - Supports rich rules, services, interfaces
+
+**ufw – Uncomplicated Firewall**
+- A simple frontend for `iptables`, made for ease-of-use. Mostly used on Ubuntu/Debian systems.
+- Characteristics:
+ - Beginner-friendly syntax
+ - Basic use-case focused
+ - Suitable for desktops and small servers
+
+
+### Checking Network Connectivity ###
+
+**ping — Test if a host is reachable**
+- Sends ICMP echo requests to check if a server is up.
+```bash
+ping google.com
+
+# Add -c to limit packets sent:
+ping -c google.com
+```
+- Look for packet loss and response time (time=xxx ms).
+
+**curl — Test HTTP/HTTPS availability**
+- Great for testing web servers, APIs, and downloading files.
+```bash
+curl http://example.com
+
+# Follow redirects:
+curl -L http://example.com
+
+# Check headers only:
+curl -I http://example.com
+
+# Test a specific port:
+curl http://example.com:8080
+
+# Add verbose mode for debug:
+curl -v http://example.com
+```
+
+**wget — Non-interactive file downloader**
+- Downloads content via HTTP, HTTPS, or FTP.
+```bash
+wget http://example.com
+
+# Check if the server is responding (headers only):
+wget --spider http://example.com
+
+# Download with retries:
+curl -t 3 http://example.com
+```
+
+**traceroute — Trace route packets take to host**
+- `traceroute` shows the path your packet takes to reach a destination (here, google.com), including each hop (router or gateway) and the time it takes to reach them.
+- In Below Example:
+ - We are tracing the route to `google.com`, which resolves to IP `142.250.195.14`. It allows a max of 30 hops to reach it.
+ - 	`_gateway (192.168.145.240)` Your local router (default gateway). Times: ~3–7 ms (normal)
+ - `192.168.17.10` Likely your ISP's first internal router. Times: ~234 ms (a bit high!)
+ - `* * *` Timed out (packet blocked or dropped). Common in intermediate hops.
+ - `192.168.19.19` Another internal ISP router. Times: 39–61 ms
+ - 	`* * *` More timeouts. Not unusual in ISP networks due to ICMP restrictions
+ - `128.185.12.93/97` Public IPs — now outside private ISP network. This hop answers with mixed IPs.
+ - `182.79.208.13 / 116.119.109.8` Your traffic is now in the public internet, possibly crossing regional ISP backbones
+ - `72.14.243.2` Google’s edge network (owned by Google). Fast response ~25–32 ms.
+ - `192.178.83.245` Likely another Google transit point. Low latency.
+ - `142.251.52.213/211` Inside Google Data Center (multiple responses due to load balancing)
+ - `del12s09-in-f14.1e100.net` Final destination: a Google server in Delhi (based on del12...).
+
+```bash
+traceroute google.com
+traceroute to google.com (142.250.195.14), 30 hops max, 60 byte packets
+ 1  _gateway (192.168.145.240)  3.520 ms  7.662 ms  7.662 ms
+ 2  192.168.17.10 (192.168.17.10)  235.479 ms  234.429 ms  235.286 ms
+ 3  * * *
+ 4  192.168.19.19 (192.168.19.19)  39.047 ms  51.171 ms  61.012 ms
+ 5  * * *
+ 6  * * *
+ 7  128.185.12.93 (128.185.12.93)  65.736 ms 128.185.12.97 (128.185.12.97)  45.779 ms  35.104 ms
+ 8  182.79.208.13 (182.79.208.13)  46.491 ms 116.119.109.8 (116.119.109.8)  46.062 ms  30.159 ms
+ 9  72.14.243.2 (72.14.243.2)  30.060 ms  25.067 ms  32.134 ms
+10  192.178.83.245 (192.178.83.245)  30.510 ms  30.149 ms  28.286 ms
+11  142.251.52.213 (142.251.52.213)  92.121 ms 142.251.52.211 (142.251.52.211)  90.247 ms 142.251.52.213 (142.251.52.213)  87.767 ms
+12  del12s09-in-f14.1e100.net (142.250.195.14)  80.485 ms  44.961 ms  28.255 ms
+```
+
+**Use host, nslookup, or dig to test DNS resolution.**
+
+**Use telnet or nc (netcat) to test port connectivity:**
+

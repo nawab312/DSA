@@ -6,7 +6,11 @@ How Hash Map Works
 - Key-Value Pair: Stored at that index.
 
 ```
-Key         --->   Hash Function   --->   Index in array
+Key          --->   Hash Function   --->   Index in array
 "apple"      --->       123         --->    arr[123] = "fruit"
 ```
 
+Time Complexity
+
+
+![image](https://github.com/user-attachments/assets/430af10a-17cc-42e9-b1e2-95caf6851e0d)

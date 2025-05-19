@@ -12,5 +12,8 @@ Key          --->   Hash Function   --->   Index in array
 
 Time Complexity
 
-
 ![image](https://github.com/user-attachments/assets/430af10a-17cc-42e9-b1e2-95caf6851e0d)
+
+What is a Collision?
+- When two different keys get the same hash/index.
+- 

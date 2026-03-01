@@ -151,8 +151,7 @@ uptime
 - Check if a number is positive or negative.
 ```bash
 #!/bin/bash
-echo "Enter a Number"
-read num
+read -p "Enter a number: " num 
 
 if [ $num -gt 0 ]; then
   echo "$num is Positive Number"
@@ -162,6 +161,8 @@ else
   echo "$num is Zero"
 fi
 ```
+- `read -p`
+  - `-p` Stands for prompt. it lets you display a message before waiting for user input.
 
 ```bash
 #Output

@@ -34,6 +34,19 @@
   #Output
   echo "id:123:id:456" | awk -F: '{ gsub("id", "user", $1); print $0 }'
   ```
+- In awk, `NR` stands for Number of Records. It’s a built-in variable that contains the current input line number, counting across all input files.
+  ```bash
+  echo -e "a\nb\nc" | awk '{ print NR, $0 }'
+
+  #Output
+  1 a
+  2 b
+  3 c
+  ```
+  - Only to print 2nd Line
+  ```bash
+  ls -lart | awk 'NR==2'
+  ```
 - The `-v` option in `awk` is used to assign values to variables before the `awk` program begins processing the input data
   ```bash
   awk -v var_name=value 'awk_program' input_file

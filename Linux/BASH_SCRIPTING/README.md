@@ -1,0 +1,2 @@
+- Check and Restart a Service
+  - https://github.com/nawab312/DSA/blob/main/Linux/BASH_SCRIPTING/Scripts/Script1.md

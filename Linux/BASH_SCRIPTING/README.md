@@ -6,3 +6,8 @@
   - Prints a warning
   - Exits with non-zero status
   - https://github.com/nawab312/DSA/blob/main/Linux/BASH_SCRIPTING/Scripts/Script2.md
+- Write a Bash script that:
+  - Takes a filename as argument
+  - Counts how many times each unique word appears
+  - Prints the top 5 most frequent words
+  - Ignores case

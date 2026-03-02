@@ -11,3 +11,4 @@
   - Counts how many times each unique word appears
   - Prints the top 5 most frequent words
   - Ignores case
+  - https://github.com/nawab312/DSA/blob/main/Linux/BASH_SCRIPTING/Scripts/Script3.md

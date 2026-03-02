@@ -18,7 +18,7 @@ banana orange apple
   ```bash
   sed 's/apple/banana/g'
   ```
-
+  
 **Line Selection**
 - Prints line 2 (but also prints everything unless you suppress default output). So it will print every line (default behavior). Print line 2 again because of `p`
   ```bash
@@ -40,4 +40,12 @@ banana orange apple
   ```bash
   sed -i 's/foo/bar/g' file.txt
   ```
+
+---
+
+- Replace every character that is NOT lowercase letter or digit with a space.
+  ```bash
+  sed 's/[^a-z0-9]/ /g'
+  ```
+
   

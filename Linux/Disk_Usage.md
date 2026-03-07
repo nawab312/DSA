@@ -43,4 +43,21 @@ sudo apt install ncdu   # Debian/Ubuntu
 sudo yum install ncdu   # RHEL/CentOS
 ncdu /
 ```
+
+---
+
+You run `df -h` on a Linux server and the disk is 100% full. How do you find which directory or file is consuming the most space?
+```bash
+# Step 1 — check which partition is full
+df -h
+
+# Step 2 — find largest directories from root
+du -sh /* | sort -h | tail -n 20
+
+# Step 3 — drill down into the biggest directory
+du -sh /var/* | sort -h | tail -n 20
+```
+
+---
+
   

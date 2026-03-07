@@ -25,10 +25,6 @@ fi
 #!/bin/bash
 
 # Check if argument is provided
-if [ -z "$1" ]; then
-    echo "Usage: $0 <service-name>"
-    exit 1
-fi
 
 SERVICE_NAME=$1
 LOG_FILE="/var/log/service_monitor.log"

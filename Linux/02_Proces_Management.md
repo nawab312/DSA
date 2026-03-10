@@ -1,1941 +1,2618 @@
-# 🖥️ Linux & Bash Mastery for DevOps/SRE/Platform Engineer Interviews
-## CATEGORY 2: Process Management — Complete Interview Preparation Guide
-
-> **How to use this guide:** Each topic follows a strict teaching format — concept → internals → interview answer → production example → gotchas. After each topic, decide: **Quiz Me | Go Deeper | Next Topic**.
+# ⚙️ CATEGORY 2: Process Management — Complete Deep Dive
 
 ---
 
-## 📍 Roadmap: Category 2 — Process Management
+# 2.1 Process Basics — PID, PPID, `ps`, `pstree`, Foreground/Background
 
-| # | Topic | Level | Interview Frequency |
-|---|-------|-------|-------------------|
-| 2.1 | Process basics — PID, PPID, `ps`, `pstree`, foreground/background | 🟢 Beginner | 🔥 Very High |
-| 2.2 | Job control — `fg`, `bg`, `jobs`, `&`, `nohup`, `disown` | 🟢 Beginner | 🔥 High |
-| 2.3 | `top` and `htop` — load average, CPU, memory columns | 🟢 Beginner | 🔥 Very High |
-| 2.4 | Signals & `kill` — SIGTERM, SIGKILL, SIGHUP, SIGINT, trapping | 🟡 Intermediate | 🔥 Very High |
-| 2.5 | Process states — R, S, D, Z, T | 🟡 Intermediate | 🔥 High |
-| 2.6 | `nice` & `renice` — CPU scheduling priority | 🟡 Intermediate | 🟡 Medium |
-| 2.7 | `/proc/PID` internals — cmdline, maps, fd, status, limits | 🟡 Intermediate | 🧠 Deep |
-| 2.8 | Linux scheduler — CFS, time slices, cgroups CPU limits | 🔴 Advanced | 🧠 Deep |
-| 2.9 | Zombie & orphan processes | 🔴 Advanced | 🔥 High |
-| 2.10 | `strace` & `ltrace` — syscall tracing | 🔴 Advanced | 🔥 High |
-| 2.11 | `lsof` — open files, sockets, fd leaks | 🔴 Advanced | 🔥 Very High |
+## 🔷 What a process is in simple terms
+
+A process is a **running instance of a program**. When you execute a binary, the kernel loads it into memory, assigns it a unique Process ID (PID), and starts executing its instructions. Every process on Linux descends from a single ancestor — `init` (or `systemd`), PID 1.
 
 ---
 
----
-
-# 🟢 2.1 — Process Basics: PID, PPID, `ps`, `pstree`, Foreground/Background
-
-## 📖 What It Is (Simple Terms)
-
-A **process** is a running instance of a program. When you run `ls`, the kernel creates a process with its own memory space, CPU registers, and file descriptors. Every process gets:
-
-- A **PID** (Process ID) — unique numeric identifier
-- A **PPID** (Parent Process ID) — who spawned it
-- An **owner** (UID/GID)
-- A **state** (running, sleeping, stopped, etc.)
-
-Think of it like a job ticket: each running program gets a unique ticket number (PID), and the ticket records who issued it (PPID).
-
----
-
-## 🔍 Why It Exists / Problem It Solves
-
-The kernel needs a way to:
-1. **Track** all running programs
-2. **Allocate** CPU time fairly between them
-3. **Isolate** their memory so they don't stomp on each other
-4. **Allow communication** between processes (signals, pipes, sockets)
-5. **Enable cleanup** — when a process dies, release its resources
-
----
-
-## ⚙️ How It Works Internally
+## 🔷 How processes are created internally
 
 ```
-User runs: $ python app.py
-          │
-          ▼
-    bash (PID 1234)
-    calls fork()
-          │
-          ▼
-    child process (PID 1235, PPID=1234)
-    calls execve("python", ...)
-          │
-          ▼
-    Kernel allocates:
-    - Virtual memory space
-    - File descriptor table (stdin/stdout/stderr inherited)
-    - Entry in /proc/1235/
-    - Scheduling slot in the run queue
-```
+fork() + exec() — the UNIX process creation model
 
-**fork() + exec() model:**
-- `fork()` — duplicates the parent process (copy-on-write)
-- `exec()` — replaces the process image with the new program
-- This is how every process is born in Linux (except PID 1 — init/systemd)
+Parent process                    Child process
+      │                                │
+      │── fork() ──────────────────────►│  Exact copy of parent
+      │             (copy-on-write)     │  (same memory, FDs, env)
+      │                                │
+      │                                │── exec() ──► loads new program
+      │                                │              replaces memory image
+      │◄── wait() ─────────────────────│  Parent waits (or not)
+      │    (collects exit status)       │
+
+Every shell command you run:
+  bash → fork() → child bash → exec("/usr/bin/ls") → ls runs
+```
 
 ---
 
-## 🔑 Key Concepts
-
-### Process Hierarchy (pstree view)
-```
-systemd(1)
-├── sshd(892)
-│   └── sshd(2341)
-│       └── bash(2342)
-│           └── python(2500) ← your app
-├── cron(1204)
-└── dockerd(1500)
-    └── containerd(1520)
-```
-
-### Essential `ps` Commands
+## 🔷 PID and PPID
 
 ```bash
-# Snapshot of all processes (BSD-style flags — most universal)
+# PID  = Process ID     — unique identifier for THIS process
+# PPID = Parent PID     — who created this process
+# UID  = User ID        — who owns this process
+# GID  = Group ID       — group ownership
+
+# Special PIDs:
+# PID 0 = swapper/idle (kernel, not visible in ps)
+# PID 1 = init / systemd (ancestor of ALL user processes)
+# PID 2 = kthreadd (ancestor of ALL kernel threads)
+
+# Your current shell's PID
+echo $$          # PID of current shell
+echo $PPID       # PID of parent (the terminal or SSH session)
+echo $!          # PID of last background process
+
+# if parent dies before child → child is "orphaned" → adopted by PID 1
+```
+
+---
+
+## 🔷 `ps` — Process snapshot
+
+```bash
+# ── Two syntax styles ─────────────────────────────────────────────────
+# BSD style (no dash):    ps aux
+# UNIX style (with dash): ps -ef
+
+# ── ps aux — the most used ───────────────────────────────────────────
 ps aux
+# USER     PID  %CPU %MEM    VSZ    RSS  TTY   STAT START  TIME COMMAND
+# root       1   0.0  0.1  16952   5432  ?     Ss   10:00  0:02 /sbin/init
+# www-data 1234  2.5  3.2 512334 131072  ?     Sl   10:05  1:23 nginx: worker
+# alice    5678  0.1  0.4  98765  16384  pts/0 S+   11:30  0:00 bash
 
-# With full path and args
-ps auxww
+# Column meanings:
+# USER    → process owner
+# PID     → process ID
+# %CPU    → CPU usage (averaged since process start)
+# %MEM    → percentage of physical RAM used
+# VSZ     → Virtual memory size (KB) — all mapped memory
+# RSS     → Resident Set Size (KB) — physical RAM actually in use NOW
+# TTY     → terminal (? = no terminal / daemon)
+# STAT    → process state (R=running, S=sleeping, D=disk wait, Z=zombie)
+# START   → when process started
+# TIME    → cumulative CPU time consumed
+# COMMAND → command line
 
-# Show process tree with parent-child relationships
-ps auxf
-
-# Show specific PID
-ps -p 1234 -o pid,ppid,cmd,%cpu,%mem
-
-# Find process by name
-ps aux | grep nginx
-
-# All processes, full format (POSIX-style)
+# ── ps -ef — UNIX style (shows PPID) ─────────────────────────────────
 ps -ef
-
-# Show threads too
-ps -eLf
-
-# Custom output: pid, name, state, cpu, mem, start time
-ps -eo pid,comm,stat,pcpu,pmem,lstart --sort=-%cpu | head -20
-```
-
-### `pstree` — Visual Process Tree
-
-```bash
-pstree                    # Whole system tree
-pstree -p                 # Include PIDs
-pstree -u                 # Include usernames
-pstree 1234               # Tree rooted at PID 1234
-pstree -ap                # Full args + PIDs
-```
-
-### Foreground vs Background
-
-```bash
-# Run in foreground (blocks the terminal)
-python app.py
-
-# Run in background (shell returns immediately)
-python app.py &           # & sends to background
-# Output: [1] 2500 ← job number, PID
-
-# Check background jobs
-jobs
-# [1]+  Running    python app.py &
-
-# Bring back to foreground
-fg %1                     # %1 = job number 1
-
-# Send running foreground job to background
-# Ctrl+Z → suspends it
-bg %1                     # resume it in background
-```
-
-### Finding PIDs — The Cheat Sheet
-
-```bash
-pidof nginx               # All PIDs of processes named nginx
-pgrep nginx               # Same, more flexible
-pgrep -l nginx            # With names
-pgrep -u www-data         # All PIDs owned by www-data
-pgrep -P 1234             # All children of PID 1234
-```
-
----
-
-## 🎤 Short Interview Answer
-
-> "A process is a running instance of a program — the kernel creates it via fork()+exec(), assigns it a unique PID, tracks its parent with PPID, and manages its lifecycle through the process table. I use `ps aux` for snapshots, `pstree` to visualize hierarchy, and `pgrep`/`pidof` to find specific processes. In production, understanding PIDs and PPIDs is essential for debugging cascading failures — if a parent dies, you need to know what happens to the children."
-
----
-
-## 🧬 Deep Dive Version
-
-**The Process Control Block (PCB):**
-Every process is represented in the kernel as a `task_struct` (C struct in Linux source). It contains:
-- PID, PPID, process group ID, session ID
-- State (TASK_RUNNING, TASK_INTERRUPTIBLE, etc.)
-- Memory map (mm_struct)
-- File descriptor table
-- Signal handlers
-- CPU registers (saved when context-switching)
-- Scheduling priority
-
-**`/proc` filesystem:**
-Every process gets a directory `/proc/PID/`:
-```bash
-ls /proc/$(pgrep nginx | head -1)/
-# cmdline  cwd  environ  exe  fd  maps  mem  net  stat  status
-```
-
-**Copy-On-Write (COW) fork:**
-When fork() is called, the kernel doesn't immediately copy the parent's memory pages — it marks them as shared and read-only. Only when either process tries to write does it copy that specific page. This makes fork() fast — forking a 2GB process is nearly instant.
-
----
-
-## 🏭 Real Production Example
-
-**Scenario: App server appears hung, users getting 502s**
-
-```bash
-# Step 1: Find the process
-pgrep -l gunicorn
-# 1847 gunicorn
-# 1849 gunicorn
-# 1850 gunicorn
-
-# Step 2: Check process tree — is master still running?
-pstree -p 1847
-# gunicorn(1847)─┬─gunicorn(1849)
-#                └─gunicorn(1850)
-
-# Step 3: Check what state they're in
-ps -p 1847,1849,1850 -o pid,stat,pcpu,pmem,etime,cmd
-# PID  STAT  %CPU  %MEM  ELAPSED  CMD
-# 1847 S      0.0   1.2  02:15:42 gunicorn master
-# 1849 D      99.9  12.4 00:00:03 gunicorn worker  ← D-state! stuck in I/O!
-# 1850 S      0.0   1.1  02:15:40 gunicorn worker
-
-# Step 4: Worker 1849 is stuck in D-state (uninterruptible sleep)
-# Likely cause: NFS mount hung, disk I/O wait, or DB connection blocked
-# Cannot be killed with SIGKILL while in D-state
-# → Restart the worker, investigate I/O subsystem
-```
-
----
-
-## 💬 Common Interview Questions
-
-**Q: What's the difference between `ps aux` and `ps -ef`?**
-> Both list all processes, but they use different flag styles. `ps aux` uses BSD-style flags (no dash) and shows %CPU/%MEM columns. `ps -ef` uses POSIX/SysV-style (with dash) and shows STIME (start time) and C (CPU usage). In practice, `ps aux` is more commonly used in DevOps contexts. The underlying data comes from `/proc` in both cases.
-
-**Q: How does a child process get created?**
-> Via `fork()` followed by `exec()`. `fork()` creates a copy of the parent process using copy-on-write semantics — both parent and child share the same memory pages until one writes to them. Then `exec()` replaces the child's program image with the new program. This fork+exec model is fundamental to how shells spawn commands.
-
-**Q: What happens to child processes when the parent dies?**
-> They become **orphans** and are re-parented to PID 1 (init/systemd). This is by design — init/systemd will then reap them when they exit. If a parent exits without waiting for its children's exit status, those children become **zombie processes** (covered in 2.9).
-
----
-
-## ⚠️ Gotchas & Edge Cases
-
-1. **`ps aux` shows a snapshot, not real-time** — if a process is spawning and dying rapidly, you might miss it. Use `watch -n 0.5 'ps aux | grep app'` for near-realtime.
-
-2. **Zombie processes show in `ps` with state `Z`** — they have a PID entry but no resources. You **cannot kill** a zombie — only its parent can reap it via `wait()`.
-
-3. **PID 1 is special** — init/systemd. If PID 1 dies, the system panics. Inside Docker containers, your entrypoint process IS PID 1 — which means if it doesn't handle signals properly, `docker stop` hangs for 10 seconds before SIGKILL.
-
-4. **`ps aux` column header `VSZ` vs `RSS`** — VSZ is virtual memory (includes mmap'd files, not all in RAM), RSS is Resident Set Size (actually in RAM). VSZ is almost always much larger than RSS and can be misleading.
-
-5. **`%CPU` in `ps` is averaged over process lifetime**, not instantaneous. Use `top` for current CPU usage.
-
----
-
-## 🔗 Connected Concepts
-
-- **Signals (2.4)** — How you communicate with or terminate processes
-- **Process states (2.5)** — What `STAT` column in `ps` means
-- **`/proc/PID` internals (2.7)** — Where all process info really lives
-- **Zombie processes (2.9)** — What happens when parents don't reap children
-- **cgroups (2.8)** — How container runtimes isolate process resources
-- **`lsof` (2.11)** — Inspecting what files/sockets a process has open
-
----
----
-
-# 🟢 2.2 — Job Control: `fg`, `bg`, `jobs`, `&`, `nohup`, `disown`
-
-## 📖 What It Is (Simple Terms)
-
-**Job control** is the shell's ability to manage multiple processes from a single terminal. You can run commands in the background, suspend them, bring them back, and detach them completely from the terminal session.
-
-Think of it like a restaurant kitchen — you're the head chef (shell), and jobs are dishes at different stages: some actively cooking on the stove (foreground), some in the oven (background), some paused waiting for ingredients (stopped).
-
----
-
-## 🔍 Why It Exists / Problem It Solves
-
-Before job control, if you started a long-running command (e.g., `tar` a large directory), you were stuck — you couldn't do anything else until it finished. Job control lets you:
-- Run multiple things in one terminal
-- Suspend and resume tasks
-- Detach processes from the terminal so they survive logout
-
----
-
-## ⚙️ How It Works Internally
-
-```
-Terminal (TTY)
-    │
-    ▼
-bash (session leader, PID 1234)
-    │
-    ├── Foreground process group ← gets keyboard input, signals from Ctrl+C/Z
-    │   └── command_1 (PID 1300)
-    │
-    └── Background process groups ← no keyboard input
-        ├── command_2 (PID 1400) [Running]
-        └── command_3 (PID 1500) [Stopped/Suspended]
-```
-
-**Key mechanism: Process Groups + TTY**
-- Each shell job is a **process group** (PGID)
-- The terminal's foreground process group receives keyboard signals (SIGINT from Ctrl+C, SIGTSTP from Ctrl+Z)
-- Background jobs don't get these signals — they run silently
-
----
-
-## 🔑 Key Commands
-
-```bash
-# Run a command in the background
-sleep 100 &
-# [1] 1847 ← job number, PID
-
-# List current jobs
-jobs
-# [1]+  Running    sleep 100 &
-# [2]-  Stopped    vim file.txt
-
-jobs -l   # Include PIDs
-jobs -p   # PIDs only
-
-# Bring job 1 to foreground
-fg %1
-fg        # Brings the "current" job (marked +) to foreground
-
-# Send a foreground job to background
-# First: Ctrl+Z   → suspends the job
-# Then:
-bg %1             # resumes it in background
-
-# Shorthand for job references
-fg %sleep         # by command name
-fg %%             # current job
-fg %+             # current job (same)
-fg %-             # previous job
-
-# Disconnect a job from the shell completely
-nohup python long_task.py &
-# Output goes to nohup.out by default
-
-# Redirect nohup output explicitly
-nohup python long_task.py > /var/log/task.log 2>&1 &
-
-# Disown — remove job from shell's job table
-python app.py &
-disown %1         # Shell no longer tracks it, won't send SIGHUP on logout
-disown -h %1      # Mark as "no SIGHUP" but keep in jobs table
-disown -a         # Disown all jobs
-```
-
-### `nohup` vs `disown` — Side by Side
-
-| Feature | `nohup cmd &` | `cmd & disown` |
-|---------|--------------|----------------|
-| Immune to SIGHUP | ✅ Yes | ✅ Yes |
-| Appears in `jobs` | ✅ Initially | ❌ After disown |
-| Output handling | Redirects to nohup.out | Unchanged (may lose output) |
-| Can use with existing process | ❌ No (must prefix) | ✅ Yes (after starting) |
-| Use case | Starting a new daemonized task | Already-running process you forgot to nohup |
-
----
-
-## 🎤 Short Interview Answer
-
-> "Job control lets you manage multiple processes from one terminal. `&` puts a job in the background, `Ctrl+Z` suspends it, `fg`/`bg` move jobs between foreground and background. For processes that need to survive terminal logout, I use `nohup cmd &` before starting, or `disown` on an already-running background job. In production I'd prefer systemd services or tmux for long-running tasks, but `nohup`/`disown` are lifesavers when you're on a remote server and accidentally started something in a shell that's about to close."
-
----
-
-## 🏭 Real Production Example
-
-**Scenario: You SSH into a server and start a database migration, then realize your VPN might drop**
-
-```bash
-# You already started it in foreground — oops
-# Ctrl+Z to suspend
-^Z
-# [1]+  Stopped    python migrate.py
-
-# Move to background and detach
-bg %1
-disown %1
-
-# Verify it's running (no longer in jobs, but in ps)
-jobs         # empty
-ps aux | grep migrate.py   # still there!
-
-# Better: use screen or tmux next time
-# But for the already-running case, disown saves you
-```
-
----
-
-## 💬 Common Interview Questions
-
-**Q: What's the difference between `nohup` and `disown`?**
-> `nohup` is used when starting a process — it sets the process to ignore SIGHUP and redirects output to nohup.out. `disown` works on an already-running background job in the current shell — it removes it from the shell's job table so the shell won't send SIGHUP to it on logout. The protection is similar, but the use case differs: `nohup` = proactive, `disown` = retroactive.
-
-**Q: What happens to background jobs when you close the terminal?**
-> The shell sends **SIGHUP** to all jobs in its job table when the controlling terminal closes. By default, this terminates them. `nohup` ignores SIGHUP at process start; `disown` removes the job from the table so it never receives the signal. Processes started without these precautions will die when you log out.
-
-**Q: What is `Ctrl+Z` actually doing?**
-> It sends **SIGTSTP** (signal 20) to the foreground process group, causing the processes to stop (not terminate). The process stays in memory in a `T` (stopped) state, preserving all state and memory, until it receives SIGCONT to resume.
-
----
-
-## ⚠️ Gotchas & Edge Cases
-
-1. **`nohup` doesn't background the process** — `nohup cmd` still runs in foreground. You need `nohup cmd &` to background it.
-
-2. **Output from disowned jobs can corrupt your terminal** — if you `disown` a job that's writing to stdout, it'll still write to your terminal. Redirect first: `cmd > output.log 2>&1 & disown`.
-
-3. **`jobs` is shell-specific** — it only shows jobs of the current shell instance. If you open a new terminal, you won't see jobs from the old one. This catches people off-guard when SSHing into a server from multiple windows.
-
-4. **Job numbers reset** — job numbers `[1]`, `[2]` are per-shell-session. PIDs are system-wide and permanent (until process dies).
-
-5. **`screen` and `tmux` are better for production** — job control is fine for ad-hoc tasks, but for anything important use a terminal multiplexer so you can reattach from any session.
-
----
-
-## 🔗 Connected Concepts
-
-- **Signals (2.4)** — SIGHUP, SIGTSTP, SIGCONT are the signals job control sends
-- **`nohup` and daemons** — how background services avoid terminal dependency
-- **Process groups and sessions** — the kernel mechanism behind job control
-- **`tmux`/`screen`** — production alternative to raw job control
-
----
----
-
-# 🟢 2.3 — `top` and `htop`: Reading Load Average, CPU, Memory
-
-## 📖 What It Is (Simple Terms)
-
-`top` is a real-time system monitor — it shows you what's consuming CPU and memory right now, updated every few seconds. `htop` is a more user-friendly, interactive version.
-
-Think of `top` as the **dashboard of a running car** — it shows you speed (CPU), fuel level (memory), engine temperature (load average), all at a glance.
-
----
-
-## 🔍 Why It Exists / Problem It Solves
-
-When a system is slow or a server is struggling, you need to quickly answer:
-- Is CPU the bottleneck or memory?
-- Which process is the culprit?
-- Is the system actually overloaded or just momentarily busy?
-- Is there memory pressure causing swapping?
-
-`top` answers all of this in one screen.
-
----
-
-## ⚙️ How It Works Internally
-
-`top` reads from `/proc` every refresh interval:
-- `/proc/stat` — system-wide CPU stats
-- `/proc/meminfo` — memory stats
-- `/proc/[PID]/stat` — per-process CPU/memory
-- `/proc/[PID]/status` — per-process state
-
-It calculates the **delta** between reads to get CPU% (how much of each interval a process used).
-
----
-
-## 🔑 Key Concepts
-
-### 🔥 Load Average — The Most Misunderstood Metric
-
-```
-top - 14:23:01 up 42 days,  3:15,  2 users,  load average: 1.85, 2.10, 1.93
-```
-
-**Load average = average number of processes that are RUNNABLE or in UNINTERRUPTIBLE wait (D-state) over the last 1, 5, 15 minutes.**
-
-```
-Load average: 1.85  (last 1 min)
-              2.10  (last 5 min)  ← trend going down from 5-min peak
-              1.93  (last 15 min)
-```
-
-**How to interpret:**
-```
-# Single-core machine:
-Load = 1.0  → 100% utilized, no queue
-Load = 2.0  → 200% = 1 running + 1 waiting → overloaded!
-
-# 4-core machine:
-Load = 1.0  → 25% utilized → no problem
-Load = 4.0  → 100% utilized → fully loaded but manageable
-Load = 8.0  → 200% = overloaded!
-
-# Rule: Load / CPU cores = real utilization
-# If ratio > 1.0 persistently → system is overloaded
-```
-
-```bash
-# Get CPU count
-nproc
-grep -c processor /proc/cpuinfo
-
-# Quick load check
-uptime
-# 14:23:01 up 42 days, load average: 1.85, 2.10, 1.93
-```
-
-### `top` Header — Annotated
-
-```
-top - 14:23:01 up 42 days,  2 users,  load average: 1.85, 2.10, 1.93
-Tasks: 312 total,   1 running, 311 sleeping,   0 stopped,   0 zombie
-%Cpu(s):  5.2 us,  1.3 sy,  0.0 ni, 92.1 id,  1.1 wa,  0.0 hi,  0.3 si
-MiB Mem :  15842.8 total,   1204.4 free,  11382.2 used,   3256.2 buff/cache
-MiB Swap:   2048.0 total,   1834.2 free,    213.8 used.   2845.3 avail Mem
-```
-
-**CPU line breakdown:**
-| Field | Meaning | Alert if... |
-|-------|---------|------------|
-| `us` | User space CPU % | > 70% sustained |
-| `sy` | Kernel/system CPU % | > 30% (too many syscalls) |
-| `ni` | Niced processes % | Informational |
-| `id` | Idle % | < 10% = system is busy |
-| `wa` | I/O Wait % | **> 10% = I/O bottleneck** |
-| `hi` | Hardware interrupt % | High = driver or HW issue |
-| `si` | Software interrupt % | High = network overload |
-
-**Memory line breakdown:**
-```
-MiB Mem: 15842 total, 1204 free, 11382 used, 3256 buff/cache
-                                              ↑
-                            This is "available" for processes if needed
-                            Free + buff/cache = effectively free
-                            
-avail Mem: 2845  ← This is what matters! Real available memory
-```
-
-> ⚠️ **Common mistake:** `free` memory looks low but `avail Mem` is fine — Linux aggressively uses free RAM for buffer/cache (which can be reclaimed). Panicking about low `free` without checking `avail` is a classic junior mistake.
-
-### Process Columns in `top`
-
-```
-  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
- 1234 www-data  20   0 1.2g    500m   10m R  89.3   3.2   2:15.33 python
-```
-
-| Column | Meaning |
-|--------|---------|
-| `PID` | Process ID |
-| `PR` | Kernel priority (20 = default, lower = higher priority) |
-| `NI` | Nice value (-20 to 19, lower = higher priority) |
-| `VIRT` | Virtual memory (total address space, includes all mmap'd files) |
-| `RES` | Resident Set Size — actual RAM used |
-| `SHR` | Shared memory (shared libs, etc.) |
-| `S` | State (R/S/D/Z/T) |
-| `%CPU` | CPU usage since last refresh |
-| `%MEM` | RES / total RAM |
-| `TIME+` | Total CPU time consumed |
-
-### `top` Interactive Keys
-
-```bash
-top
-# Inside top:
-k          # Kill a process (prompts for PID + signal)
-r          # Renice a process
-q          # Quit
-1          # Toggle per-CPU breakdown
-M          # Sort by memory
-P          # Sort by CPU (default)
-T          # Sort by cumulative time
-f          # Field/column selector
-u          # Filter by user
-H          # Toggle thread view
-s          # Change refresh interval
-```
-
-### `htop` Advantages
-
-```bash
-# Install if not present
-apt install htop   # Debian/Ubuntu
-yum install htop   # RHEL/CentOS
-
-htop
-# Features over top:
-# - Color-coded CPU/memory bars
-# - Mouse support
-# - F3: search by name
-# - F4: filter
-# - F5: tree view (like pstree)
-# - F6: sort column
-# - F9: kill menu (shows signal choices)
-# - Horizontal scroll to see full commands
-```
-
-### One-Liners for Production
-
-```bash
-# Top 5 CPU-consuming processes right now (non-interactive)
-ps aux --sort=-%cpu | head -6
-
-# Top 5 memory consumers
-ps aux --sort=-%mem | head -6
-
-# Check load every second
-watch -n 1 uptime
-
-# Log load average every minute
-while true; do date; uptime; sleep 60; done >> /var/log/load.log
-
-# Non-interactive top output (batch mode, 1 iteration)
-top -b -n 1 | head -20
-
-# Show per-CPU stats
-mpstat -P ALL 1 3   # requires sysstat package
-```
-
----
-
-## 🎤 Short Interview Answer
-
-> "Load average represents the average number of processes competing for CPU or blocked in uninterruptible I/O over 1, 5, and 15 minutes. To interpret it meaningfully you divide by the number of CPU cores — a load of 4.0 on a 4-core machine is 100% utilized, while on a single-core machine it's 4x overloaded. When I look at `top`, I focus first on the CPU `wa` (I/O wait) and `us` columns, then memory's `avail Mem` — not `free`, because Linux caches disk I/O in unused RAM which looks like low free memory but is actually healthy."
-
----
-
-## 🏭 Real Production Example
-
-**Scenario: Alert fires — app response time spiked from 50ms to 5s**
-
-```bash
-# SSH to server, immediately run top
-top
-
-# See: load average: 18.2, 12.1, 8.5 (server has 8 cores → 2x overloaded)
-# CPU: us 4.2, sy 2.1, wa 89.3  ← 89% I/O WAIT
-# Memory: avail 12GB → not the problem
-
-# High wa = I/O bottleneck. Something is hammering disk or network storage.
-
-# Find the D-state processes (waiting on I/O)
-ps aux | awk '$8 ~ /D/ {print}'
-
-# Check disk I/O
-iostat -x 1 3
-
-# Output shows /dev/sdb at 100% utilization
-# Identify which process is writing to /dev/sdb
-iotop -o    # Shows only active I/O processes
-
-# Root cause: Log rotation script running tar on 100GB logs to NFS
-# Fix: Move log rotation to off-peak hours, use async compression
-```
-
----
-
-## 💬 Common Interview Questions
-
-**Q: Server load average is 25 — is that a problem?**
-> It depends on how many CPU cores the server has. Run `nproc` to find out. If it's a 32-core machine, load 25 means ~78% utilized — totally fine. If it's a 4-core machine, load 25 means 6x overloaded — severe problem. Also check the trend: is load 25 coming down from 40 (recovering) or going up from 10 (getting worse)?
-
-**Q: Memory shows only 200MB free — should I be worried?**
-> Not necessarily. Linux uses spare RAM as disk cache (buff/cache). The key metric is `avail Mem` (or `free -h`'s available column), which shows how much memory can be given to applications. If `avail Mem` is healthy (say 4GB), the system is fine even with only 200MB "free." Only worry if `avail Mem` is critically low and swap is being heavily used.
-
-**Q: What does high `wa` (I/O wait) mean?**
-> It means CPUs are idle waiting for I/O operations to complete — disk reads/writes or network-attached storage. The fix is almost never "add more CPU" — it's to identify and reduce the I/O bottleneck: optimize queries to avoid full table scans, move to faster storage, reduce write amplification, or schedule I/O-heavy tasks during off-peak hours.
-
----
-
-## ⚠️ Gotchas & Edge Cases
-
-1. **Load average includes D-state processes** — a stuck NFS mount with 10 processes blocked on it can spike load average to 10+, even with CPUs idle. You'd see `wa` high but `us` low. Classic NFS/storage incident pattern.
-
-2. **`%CPU` in top can exceed 100%** — on multi-core systems, a multi-threaded process can use 400% CPU on a 4-core machine (each core 100%). This is normal and good.
-
-3. **top's CPU % is since last refresh, not total lifetime** — unlike `ps`'s TIME+ which is cumulative.
-
-4. **Swap usage as a warning sign** — if swap is actively being used (check `si`/`so` in `vmstat`), the system is paging, which is orders of magnitude slower than RAM and will cause serious performance degradation.
-
-5. **`VIRT` is almost always misleadingly large** — don't panic about a process showing 10GB VIRT if `RES` is only 500MB. VIRT includes mmap'd files, reserved but not allocated memory, shared libraries, etc.
-
----
-
-## 🔗 Connected Concepts
-
-- **Process states (2.5)** — explains the R/S/D/Z/T in top's S column
-- **CFS scheduler (2.8)** — explains PR/NI columns and how CPU time is divided
-- **`nice`/`renice` (2.6)** — controls the NI column
-- **`/proc/meminfo`, `/proc/stat`** — raw data sources that top reads
-- **`iotop`, `iostat`** — drill down on I/O when `wa` is high
-
----
----
-
-# 🟡 2.4 — Signals & `kill`: SIGTERM, SIGKILL, SIGHUP, SIGINT, Trapping
-
-## 🔥 High Frequency Interview Topic
-
-## 📖 What It Is (Simple Terms)
-
-Signals are **asynchronous notifications** sent to processes — the kernel's way of saying "something happened, deal with it." They're like a phone call to a process: it can answer (handle it), ignore it, or in some cases, the call can't be blocked (SIGKILL).
-
----
-
-## 🔍 Why It Exists / Problem It Solves
-
-You need a way to:
-- Gracefully stop a process (let it clean up)
-- Forcefully kill a hung process
-- Tell a daemon to reload its config without restarting
-- Notify a process that a terminal closed or user pressed Ctrl+C
-
-Signals provide a standardized mechanism for all of these.
-
----
-
-## ⚙️ How It Works Internally
-
-```
-Signal Flow:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Source                   Kernel                    Target Process
-──────               ─────────────              ─────────────────
-kill -15 PID  ──►  Sets pending signal   ──►  Process checks signal
-Ctrl+C        ──►  bit in task_struct    ──►  at next scheduling
-Hardware      ──►                             point or syscall return
-Kernel self   ──►                                │
-                                                 ▼
-                                         Signal handler runs:
-                                         - DEFAULT action (kill/stop/ignore)
-                                         - Custom handler (if registered)
-                                         - SIG_IGN (if ignored)
-```
-
-**Signal delivery happens:**
-- When returning from a system call
-- When the process is scheduled after being in sleep state
-- Immediately for signals that wake the process
-
----
-
-## 🔑 Key Signals — The Essential Table
-
-| Signal | Number | Default Action | Can Catch/Ignore? | Common Use |
-|--------|--------|----------------|-------------------|------------|
-| `SIGTERM` | 15 | Terminate | ✅ Yes | Graceful shutdown request |
-| `SIGKILL` | 9 | Kill immediately | ❌ NO | Force kill — last resort |
-| `SIGHUP` | 1 | Terminate | ✅ Yes | Reload config / terminal closed |
-| `SIGINT` | 2 | Terminate | ✅ Yes | Ctrl+C — interrupt |
-| `SIGQUIT` | 3 | Core dump | ✅ Yes | Ctrl+\ — quit with core |
-| `SIGSTOP` | 19 | Stop process | ❌ NO | Pause (like Ctrl+Z) |
-| `SIGTSTP` | 20 | Stop process | ✅ Yes | Ctrl+Z — soft stop |
-| `SIGCONT` | 18 | Continue | ✅ Yes | Resume a stopped process |
-| `SIGUSR1` | 10 | Terminate | ✅ Yes | User-defined (app-specific) |
-| `SIGUSR2` | 12 | Terminate | ✅ Yes | User-defined (app-specific) |
-| `SIGCHLD` | 17 | Ignore | ✅ Yes | Child process changed state |
-| `SIGPIPE` | 13 | Terminate | ✅ Yes | Broken pipe (write to closed fd) |
-| `SIGALRM` | 14 | Terminate | ✅ Yes | Timer expired |
-
-> ⚠️ **SIGKILL (9) and SIGSTOP (19) CANNOT be caught, blocked, or ignored.** They are handled directly by the kernel, bypassing any process-level handlers.
-
----
-
-## 🔑 `kill` Command Usage
-
-```bash
-# Send SIGTERM (default) — ask nicely
-kill 1234
-kill -15 1234
-kill -TERM 1234
-kill -SIGTERM 1234
-
-# Send SIGKILL — force kill
-kill -9 1234
-kill -KILL 1234
-
-# Send SIGHUP — reload config
-kill -1 1234
-kill -HUP 1234
-
-# Kill all processes named nginx
-killall nginx
-killall -9 nginx
-
-# Kill all processes matching pattern
-pkill nginx
-pkill -9 -f "gunicorn.*worker"   # -f matches full command line
-pkill -HUP nginx                  # Send SIGHUP to reload
-
-# List all signal names/numbers
-kill -l
-```
-
-### Graceful Shutdown Sequence (Production Pattern)
-
-```bash
-# Step 1: Try graceful shutdown
-kill -TERM $PID
-sleep 10
-
-# Step 2: Check if it's still running
-if kill -0 $PID 2>/dev/null; then
-    echo "Process still running after SIGTERM, forcing..."
-    kill -KILL $PID
+# UID   PID  PPID  C  STIME  TTY   TIME    CMD
+# root    1     0  0  10:00  ?     0:02    /sbin/init
+# root    2     0  0  10:00  ?     0:00    [kthreadd]
+# PPID column is the KEY advantage of -ef over aux
+
+# ── Custom output format — most powerful ──────────────────────────────
+ps -eo pid,ppid,user,stat,pcpu,pmem,comm --sort=-pcpu | head -20
+# -eo          = select specific columns for ALL processes
+# --sort=-pcpu = sort by CPU descending (- = descending)
+
+# Find top CPU consumers
+ps -eo pid,ppid,cmd,%cpu --sort=-%cpu | head -10
+
+# Find top memory consumers
+ps -eo pid,ppid,cmd,%mem,rss --sort=-rss | head -10
+
+# Show process tree
+ps aux --forest       # ASCII tree showing parent-child relationships
+
+# Show threads of a process
+ps -p 1234 -L         # Threads of PID 1234
+
+# Check if process is running in a script
+if ps -p "$PID" > /dev/null 2>&1; then
+    echo "Process $PID is running"
+fi
+# By name:
+if pgrep -x "nginx" > /dev/null; then
+    echo "nginx is running"
 fi
 
-# kill -0 doesn't send a signal — just checks if PID exists and you have permission
+# Full command without truncation
+ps auxww                                   # ww = wide, no truncation
+cat /proc/1234/cmdline | tr '\0' ' '       # Definitive source from kernel
 ```
 
 ---
 
-## 🔑 Trapping Signals in Bash Scripts
+## 🔷 `pstree` — Visual process hierarchy
 
 ```bash
-#!/bin/bash
+pstree
+# systemd─┬─accounts-daemon───2*[{accounts-daemon}]
+#         ├─dockerd─┬─containerd───10*[{containerd}]
+#         ├─nginx───4*[nginx]
+#         ├─sshd───sshd───bash───pstree
+#         └─systemd-journal
 
-# Clean up temp files if script is interrupted
+pstree -p        # Show PIDs
+pstree -u        # Show username changes
+pstree 1234      # Tree rooted at PID 1234
+pstree alice     # All processes owned by alice
+pstree -pa       # Show PIDs and full arguments
+
+# Why pstree matters in production:
+# - Shows parent-child chains ps hides
+# - Understand why kill doesn't propagate
+# - Debug container process hierarchies
+# - Find orphaned process chains
+```
+
+---
+
+## 🔷 Foreground vs Background
+
+```bash
+# Foreground (default): shell blocks, Ctrl+C kills, Ctrl+Z suspends
+sleep 100
+
+# Background (&): shell returns immediately
+sleep 100 &     # [1] 12345
+
+# Multiple background jobs
+make build &    # [1] 12345
+make test &     # [2] 12346
+
+# Wait for background jobs
+wait            # Wait for ALL
+wait 12345      # Wait for specific PID
+wait %1         # Wait for job number 1
+
+# TTY: ? = no terminal (daemon), pts/0 = SSH/xterm, tty1 = physical console
+```
+
+---
+
+## 🔷 Short crisp interview answer
+
+> "Every process has a PID and PPID. Processes are created via `fork()` which clones the parent, then `exec()` loads the new binary image. `ps aux` gives a snapshot — I pay attention to the STAT column, RSS for actual RAM use, and `--sort=-%cpu` to find CPU hogs. `ps -ef` is useful specifically because it shows PPID, letting me trace parent-child chains. `pstree -p` visualizes the whole hierarchy. `&` runs in background, Ctrl+Z suspends, and the shell tracks these as numbered jobs."
+
+---
+
+## ⚠️ Gotchas
+
+```bash
+# GOTCHA 1: VSZ vs RSS
+# VSZ = virtual address space (includes shared libs, mmap gaps) — MISLEADING
+# RSS = actual physical RAM pages in use — the real number
+# VSZ >> RSS is NORMAL. Watch RSS for memory pressure.
+
+# GOTCHA 2: %CPU is averaged since process start, not instantaneous
+# Use top for real-time CPU percentages.
+
+# GOTCHA 3: Killing a parent doesn't always kill children
+# Children become orphans → adopted by PID 1 → keep running!
+# To kill a process group: kill -- -PGID (negative = process group)
+
+# GOTCHA 4: [brackets] in ps = kernel threads — don't kill them
+# [kworker/0:0], [migration/0] = kernel internals
+
+# GOTCHA 5: ps truncates long command lines
+ps auxww                                   # ww = disable truncation
+cat /proc/PID/cmdline | tr '\0' ' '        # Full command from kernel
+```
+
+---
+---
+
+# 2.2 Job Control — `fg`, `bg`, `jobs`, `&`, `nohup`, `disown`
+
+## 🔷 What job control is
+
+Job control lets you **manage multiple processes from a single shell session** — suspending, resuming, and moving processes between foreground and background. It's the shell's built-in task manager, built on POSIX signal semantics.
+
+---
+
+## 🔷 How job control works internally
+
+```
+Terminal (pts/0)
+      ├── SIGINT  (Ctrl+C)   → kills foreground process GROUP
+      ├── SIGTSTP (Ctrl+Z)   → suspends foreground process GROUP
+      └── SIGHUP  (terminal close) → sent to session leader → propagates
+
+Shell's job table:
+      ├── Job 1 [running]  → foreground (has terminal control)
+      ├── Job 2 [stopped]  → suspended (SIGTSTP received)
+      └── Job 3 [running]  → background (no terminal input)
+
+Process Groups:
+  Every job = a process group (PGID)
+  fg/bg operate on the ENTIRE process group, not one PID
+  Ctrl+C kills ALL processes in the foreground process group
+```
+
+---
+
+## 🔷 Core job control commands
+
+```bash
+# ── Start background jobs ─────────────────────────────────────────────
+sleep 300 &
+# [1] 12345     ← [job_number] PID
+
+make build &    # [1] 12345
+make test &     # [2] 12346
+
+# ── jobs — list current shell's jobs ─────────────────────────────────
+jobs
+# [1]   Running    make build &
+# [2]-  Running    make test &
+# [3]+  Running    rsync -av . /bak/ &
+#  + = current job (most recently touched)
+#  - = previous job
+
+jobs -l    # Include PIDs
+jobs -r    # Only running jobs
+jobs -s    # Only stopped jobs
+
+# ── Ctrl+Z — suspend foreground process ──────────────────────────────
+vim myfile.txt
+^Z
+# [1]+  Stopped    vim myfile.txt
+# Shell prompt returns — vim is paused in memory, file is safe
+
+# ── fg — bring job to foreground ─────────────────────────────────────
+fg          # Bring the + (current) job to foreground
+fg %1       # Bring job 1 to foreground
+fg %vim     # Bring job whose command starts with "vim"
+fg %-       # Bring the previous (-) job to foreground
+
+# ── bg — resume stopped job in background ────────────────────────────
+./long_compile.sh     # Oops, forgot &, now blocking
+^Z                    # Suspend it
+bg %1                 # Resume it in background
+# [1]+ ./long_compile.sh &
+
+# ── wait — synchronize on background jobs ─────────────────────────────
+./step1.sh &
+./step2.sh &
+wait                  # Block until ALL finish
+echo "All done"
+
+# Capture exit status:
+./risky.sh &
+JOB_PID=$!
+wait $JOB_PID
+EXIT_CODE=$?
+[[ $EXIT_CODE -ne 0 ]] && echo "Failed: $EXIT_CODE"
+```
+
+---
+
+## 🔷 `nohup` — Survive terminal disconnect
+
+```bash
+# Problem: closing terminal sends SIGHUP → kills background jobs
+# nohup: makes process IGNORE SIGHUP
+
+nohup ./long_running_script.sh &
+# nohup: ignoring input and appending output to 'nohup.out'
+
+# What nohup does:
+# 1. Sets SIGHUP to SIG_IGN in the child process
+# 2. Redirects stdin from /dev/null
+# 3. Redirects stdout to nohup.out if stdout is a terminal
+
+# Always specify your own log file:
+nohup ./script.sh > /var/log/myscript.log 2>&1 &
+nohup python3 server.py --port 8080 > server.log 2>&1 &
+
+# nohup vs screen/tmux:
+# nohup  → fire-and-forget scripts, no interaction needed
+# screen → reattachable terminal sessions, interactive work
+# tmux   → modern screen, split panes, preferred today
+```
+
+---
+
+## 🔷 `disown` — Remove job from shell's control
+
+```bash
+# Problem: process already running, forgot nohup, can't restart
+# disown removes it from shell's job table
+# → shell won't send SIGHUP when it exits
+
+./my_server.py &   # [1] 12345
+
+disown %1          # By job number
+disown 12345       # By PID
+disown -a          # Disown ALL jobs
+
+# -h: keep in job table but won't get SIGHUP on logout
+disown -h %1
+
+# Verify it's gone from job table:
+jobs               # No longer listed
+ps aux | grep my_server.py   # Still running!
+
+# Rescue workflow (forgot nohup):
+./big_job.sh &     # Started without nohup
+disown -h %%       # Mark to not receive SIGHUP
+# Safe to close terminal now
+
+# nohup vs disown:
+# nohup:  changes signal handling IN THE PROCESS (more robust)
+# disown: changes what THE SHELL does on exit (rescue option)
+```
+
+---
+
+## 🔷 Short crisp interview answer
+
+> "Job control uses process groups and signals. Ctrl+Z sends SIGTSTP to the foreground process group, suspending it. `bg` sends SIGCONT to resume it in the background. `fg` gives it back terminal control. `nohup` makes a process ignore SIGHUP — which terminals send to all jobs when closing. `disown` removes a job from the shell's job table so the shell won't send SIGHUP, but the process itself can still receive it. For production scripts I always use `nohup cmd > log 2>&1 &`. If I forget, `disown -h %1` is the rescue."
+
+---
+
+## ⚠️ Gotchas
+
+```bash
+# GOTCHA 1: Background jobs still write to terminal
+./noisy_script.sh &   # Output mixes with your prompt!
+# Fix: ./noisy_script.sh > /tmp/output.log 2>&1 &
+
+# GOTCHA 2: Ctrl+C kills the ENTIRE foreground process group
+# If process spawned 5 children, Ctrl+C kills all 5
+
+# GOTCHA 3: jobs are LOCAL to each shell session
+# Terminal 1: ./job.sh &
+# Terminal 2: jobs → EMPTY! (different shell, different job table)
+
+# GOTCHA 4: Background jobs die if shell exits without disown/nohup
+./long.sh &     # Background
+exit            # Shell exits → SIGHUP → long.sh dies!
+# Fix: nohup ./long.sh & OR ./long.sh & then disown
+
+# GOTCHA 5: wait exit code
+./maybe_fails.sh &
+wait $!
+echo "Exit: $?"    # Captures actual exit code of background job
+```
+
+---
+---
+
+# 2.3 `top` and `htop` — Reading Load Average, CPU, Memory Columns
+
+## 🔷 What they are
+
+`top` and `htop` are **real-time process monitors** — they refresh every 1-3 seconds showing the live state of CPU, memory, and processes. `top` is installed everywhere; `htop` is the friendlier, more feature-rich successor.
+
+---
+
+## 🔷 `top` — Dissecting the output
+
+```
+top - 14:32:15 up 12 days, 3:45, 2 users, load average: 1.23, 0.87, 0.65
+Tasks: 156 total,  1 running, 154 sleeping,  0 stopped,  1 zombie
+%Cpu(s):  8.3 us,  2.1 sy,  0.0 ni, 88.9 id,  0.5 wa,  0.0 hi,  0.2 si
+MiB Mem :  15983.4 total,   1204.5 free,  10245.2 used,   4533.7 buff/cache
+MiB Swap:   2048.0 total,   1998.3 free,     49.7 used.   5200.3 avail Mem
+
+PID    USER   PR  NI   VIRT    RES    SHR  S  %CPU  %MEM  TIME+    COMMAND
+12345  nginx  20   0   512m   128m    32m  S   8.3   0.8   1:23.45  nginx
+67890  java  -20 -20   4.2g   3.1g    45m  S  12.1  19.8  45:12.33  java
+  999  root   20   0    65m    12m     8m  R   0.3   0.1   0:02.11  top
+```
+
+---
+
+## 🔷 Load average — the most important line
+
+```bash
+# load average: 1.23, 0.87, 0.65
+#               ────  ────  ────
+#               1min  5min  15min
+
+# Load average = average number of processes WANTING the CPU
+# (running + waiting for CPU) over the time period
+
+# For a SINGLE-CORE machine:
+# load = 1.0 → CPU 100% utilized
+# load = 0.5 → CPU 50% utilized
+# load = 2.0 → overloaded, 1 process waiting on average
+
+# For MULTI-CORE (e.g., 4 cores):
+# load = 4.0 → 100% utilized (1 process per core)
+# load = 8.0 → overloaded (2 processes per core)
+
+# Find number of cores:
+nproc
+grep -c ^processor /proc/cpuinfo
+
+# Rule: load/core < 1.0 → fine | = 1.0 → at capacity | > 1.0 → overloaded
+
+# Reading the TREND (most important):
+# 1.23, 0.87, 0.65 → load was low, is RISING  → investigate
+# 1.23, 1.45, 1.87 → load was high, FALLING   → recovering
+# 1.23, 1.21, 1.25 → load STABLE              → chronic issue
+
+# ⚠️ High load ≠ always high CPU!
+# Load includes processes waiting for DISK I/O (D state)
+# You can have load=10 with CPU=5% if everything is I/O bound
+```
+
+---
+
+## 🔷 CPU line breakdown
+
+```bash
+# %Cpu(s): 8.3 us, 2.1 sy, 0.0 ni, 88.9 id, 0.5 wa, 0.0 hi, 0.2 si, 0.0 st
+
+# us = user space     — your applications consuming CPU
+# sy = system/kernel  — kernel doing work on behalf of processes
+# ni = nice           — user processes with modified nice values
+# id = idle           — CPU doing nothing (want this HIGH)
+# wa = iowait         — CPU idle but WAITING for I/O to complete
+# hi = hardware IRQ   — handling hardware interrupts
+# si = software IRQ   — handling software interrupts
+# st = steal          — time stolen by hypervisor (VM overhead)
+
+# What to look for:
+# High us → app is CPU-hungry → find and optimize the process
+# High sy → lots of syscalls  → excessive I/O or context switching
+# High wa → I/O bottleneck    → check disk with iostat, iotop
+# High st → VM throttled      → host overloaded, check cloud CPU credits
+# Low  id → CPU under pressure → need more CPUs or optimization
+
+# Press '1' in top → expands to show each CPU core individually
+# %Cpu0  : 82.3 us ...   ← this core is maxed
+# %Cpu1  :  4.1 us ...   ← this core is idle
+# Useful for spotting single-threaded bottlenecks pinned to one core
+```
+
+---
+
+## 🔷 Memory lines
+
+```bash
+# MiB Mem : 15983.4 total, 1204.5 free, 10245.2 used, 4533.7 buff/cache
+# MiB Swap:  2048.0 total, 1998.3 free,    49.7 used. 5200.3 avail Mem
+
+# total      = physical RAM installed
+# free       = RAM not used at all (usually intentionally low)
+# used       = RAM used by processes
+# buff/cache = RAM used for disk buffers and file cache (RECLAIMABLE)
+# avail Mem  = RAM available for new processes (free + reclaimable cache)
+
+# ⚠️ CRITICAL: "free" being low is NOT a problem!
+# Linux deliberately uses free RAM for disk cache (makes reads faster)
+# Kernel reclaims cache instantly when a process needs RAM
+# Low "free" with high "avail Mem" = HEALTHY, working as designed
+
+# Real memory pressure indicators:
+# avail Mem is LOW AND swap used is HIGH → actual memory pressure
+# Swap used INCREASING over time         → memory leak or undersized RAM
+
+# free command gives the same info more clearly:
+free -h
+#               total    used    free   shared  buff/cache  available
+# Mem:           15Gi    10Gi   1.2Gi    256Mi       4.5Gi       5.1Gi
+# Swap:         2.0Gi    49Mi   2.0Gi
+```
+
+---
+
+## 🔷 Process columns in top
+
+```bash
+# PID    USER  PR  NI   VIRT    RES    SHR  S  %CPU  %MEM  TIME+   COMMAND
+
+# PR  = priority (kernel scheduling priority, lower number = higher priority)
+# NI  = nice value (-20 to +19, lower = gets more CPU)
+# VIRT = virtual memory — all mapped address space (misleading, usually huge)
+# RES  = resident memory — physical RAM actually in use ← THE one that matters
+# SHR  = shared memory — shared libraries, shared mappings
+# S    = state: R(running) S(sleeping) D(disk wait) Z(zombie) T(stopped)
+# %CPU = CPU this sample (can exceed 100% for multi-threaded — normal!)
+# TIME+= cumulative CPU time (hours:minutes:seconds.hundredths)
+
+# RES - SHR = private memory unique to this process
+```
+
+---
+
+## 🔷 `top` keyboard shortcuts
+
+```bash
+# While top is running:
+1          → per-CPU view (show each core individually)
+M          → sort by memory (RES)
+P          → sort by CPU %
+T          → sort by TIME+
+k          → kill a process (prompts for PID and signal)
+r          → renice a process
+u          → filter by user
+f          → field management (add/remove/reorder columns)
+d          → change refresh interval
+H          → toggle thread view
+V          → tree/forest view
+c          → toggle full command path
+i          → hide idle processes (0% CPU)
+q          → quit
+Shift+W    → save layout to ~/.toprc
+
+# Non-interactive (for scripts):
+top -b -n 1                  # -b=batch mode, -n 1=one iteration
+top -b -n 1 | head -20       # Get header + top processes
+top -b -n 1 -o %CPU | head -20   # Sort by CPU
+```
+
+---
+
+## 🔷 `htop` — The modern monitor
+
+```bash
+# Install
+apt install htop    # Debian/Ubuntu
+yum install htop    # RHEL/CentOS
+
+# htop advantages over top:
+# - Color coded per column type
+# - Mouse clickable headers (click to sort)
+# - Per-core CPU bars (visual, instant)
+# - Horizontal scrolling (no truncation)
+# - Multi-select processes (Spacebar)
+# - Kill multiple at once
+
+# htop header:
+# CPU bars: [|||||||       50%]  ← visual bar per core
+# Mem bar:  [|||||||||||||8.5G]  ← visual bar for RAM
+# Swp bar:  [|               ]   ← swap usage
+# Tasks: 156, Load: 1.23 0.87 0.65, Uptime: 12 days
+
+# Key shortcuts:
+F1 or ?    → help
+F2         → setup (columns, colors, meters)
+F3 or /    → search process by name
+F4         → filter (show only matching)
+F5         → tree view toggle
+F6         → sort by column
+F7 / F8    → decrease / increase nice value
+F9         → kill (shows signal menu)
+F10 or q   → quit
+Space      → tag/select a process
+k          → kill tagged processes
+e          → show environment variables
+l          → lsof for selected process (open files)
+s          → strace selected process
+H          → hide user threads
+K          → hide kernel threads
+```
+
+---
+
+## 🔷 Worked example: diagnosing a slow server
+
+```bash
+# Scenario 1 — disk bottleneck:
+# load average: 14.23, 12.87, 9.65   ← rising on a 4-core machine
+# %Cpu(s):  2.3 us,  1.1 sy,  0.0 ni, 12.0 id, 84.3 wa
+#                                                ──────────
+#                                                84% iowait!
+# Diagnosis: CPU is idle, waiting for disk → disk is the bottleneck
+# Next steps: iostat -x 1, iotop
+
+# Scenario 2 — CPU hog:
+# load average: 8.23, 7.87, 7.65    ← consistently high on 4-core
+# %Cpu(s): 95.3 us,  3.1 sy,  0.0 ni, 0.4 id, 0.5 wa
+#           ──────────────────────────────────────────
+#           95% user CPU! Something is spinning in userspace
+# Next steps: sort top by %CPU → find the PID → strace / perf
+
+# Scenario 3 — memory pressure:
+# MiB Swap: 2048 total, 12 free, 2036 used.  102.3 avail Mem
+#                        ────────────────     ───────────────
+#                        Swap nearly full!    But avail Mem is 102MB — tight
+# Is swap growing? Run: watch -n 5 free -h
+# If swap used growing → memory leak in an application
+```
+
+---
+
+## 🔷 Short crisp interview answer
+
+> "The most important line in top is load average — average processes wanting CPU over 1/5/15 minutes. On a 4-core machine, load 4.0 = 100% utilized. I compare 1-min vs 15-min to see trend direction. For CPU, I focus on `wa` — high iowait with low user CPU means disk bottleneck, not CPU. For memory, 'free' being low is meaningless since Linux uses free RAM for cache. I look at `avail Mem` and watch swap usage trend. In htop I use F3 to search, F5 for tree view, Space+F9 to kill multiple processes, and press '1' in top to see individual CPU cores."
+
+---
+
+## ⚠️ Gotchas
+
+```bash
+# GOTCHA 1: Load includes I/O wait, not just CPU
+# load = 10, CPU = 5% → disk bottleneck, not CPU
+# Check iowait % in the CPU line to confirm
+
+# GOTCHA 2: %CPU > 100% is NORMAL for multi-threaded processes
+# A 4-thread process maxing all threads shows ~400% CPU
+# This is correct — it's using 4 full cores
+
+# GOTCHA 3: "free" memory being low is NOT a problem
+# Linux caches disk reads in free RAM → "free" looks low
+# Look at "avail Mem" for actual headroom
+
+# GOTCHA 4: top -b output is for scripts, not interactive
+# %CPU in batch mode is since last sample, may look jumpy
+# Take multiple samples and average them for reliable data
+
+# GOTCHA 5: Load in containers can be misleading
+# Containers share the HOST kernel's load average
+# A container limited to 1 CPU may show host load of 20
+# Use cgroup CPU metrics for container-accurate monitoring
+```
+
+---
+---
+# 2.4 Signals & `kill` — SIGTERM, SIGKILL, SIGHUP, SIGINT, Trapping Signals
+
+## 🔷 What signals are
+
+Signals are **software interrupts** — the kernel's way of notifying a process that an event has occurred. They're asynchronous: a process can be doing anything when a signal arrives, and execution jumps to the signal handler immediately.
+
+---
+
+## 🔷 How signals work internally
+
+```
+Signal lifecycle:
+  Sender                    Kernel                    Receiver
+    │                          │                          │
+    │── kill(pid, SIGTERM) ────►│                          │
+    │                          │ marks signal as pending  │
+    │                          │ in receiver's task_struct│
+    │                          │                          │
+    │                          │── delivers signal ───────►│
+    │                          │   (on return from        │  signal handler runs
+    │                          │    syscall or interrupt)  │  OR default action
+    │                          │                          │
+
+Signal dispositions (what a process can do with a signal):
+  1. Default action   (kernel defined — terminate, dump core, stop, ignore)
+  2. Custom handler   (process installs its own function)
+  3. Ignore           (SIG_IGN — signal is silently discarded)
+  4. Block            (signal is held pending until unblocked)
+
+⚠️ SIGKILL and SIGSTOP CANNOT be caught, blocked, or ignored!
+   Only the kernel handles them — always.
+```
+
+---
+
+## 🔷 The important signals
+
+```bash
+Signal     Num  Default    Description
+──────────────────────────────────────────────────────────────────
+SIGHUP      1   Terminate  Terminal hangup / daemon config reload
+SIGINT      2   Terminate  Ctrl+C — keyboard interrupt
+SIGQUIT     3   Core dump  Ctrl+\ — quit with core dump
+SIGKILL     9   Terminate  CANNOT be caught/ignored — instant kill
+SIGTERM    15   Terminate  Graceful termination request (catchable)
+SIGSTOP    17   Stop       CANNOT be caught/ignored — pause process
+SIGTSTP    20   Stop       Ctrl+Z — terminal stop (CAN be caught)
+SIGCONT    18   Continue   Resume a stopped process
+SIGCHLD    17   Ignore     Child process stopped or terminated
+SIGUSR1    10   Terminate  User-defined signal 1 (app-specific)
+SIGUSR2    12   Terminate  User-defined signal 2 (app-specific)
+SIGALRM    14   Terminate  Timer signal (from alarm() syscall)
+SIGPIPE    13   Terminate  Broken pipe (write to closed read-end)
+SIGSEGV    11   Core dump  Segmentation fault (invalid memory access)
+SIGBUS      7   Core dump  Bus error (misaligned memory access)
+
+# List all signals:
+kill -l
+trap -l    # In bash
+```
+
+---
+
+## 🔷 `kill` — Sending signals
+
+```bash
+# kill sends a signal to a process
+# Despite the name, it's a SIGNAL SENDER — not just for killing!
+
+# Default signal = SIGTERM (15) — graceful shutdown request
+kill 12345           # Send SIGTERM to PID 12345
+kill -15 12345       # Same — explicit
+kill -SIGTERM 12345  # Same — by name
+
+# SIGKILL — guaranteed termination (no cleanup)
+kill -9 12345
+kill -SIGKILL 12345
+
+# SIGHUP — reload config (convention for many daemons)
+kill -HUP 12345
+kill -1 12345
+
+# SIGUSR1 / SIGUSR2 — user-defined (app-specific behavior)
+kill -USR1 12345     # nginx: reopen log files
+kill -USR2 12345     # nginx: graceful upgrade
+
+# ── Targeting by name with pkill ──────────────────────────────────────
+pkill nginx            # SIGTERM to all processes named "nginx"
+pkill -9 nginx         # SIGKILL all "nginx"
+pkill -HUP nginx       # Reload all nginx processes
+pkill -u alice         # Kill all processes owned by alice
+pkill -f "python3 app" # Match against full command line (-f)
+
+# ── Targeting with killall ─────────────────────────────────────────────
+killall nginx          # SIGTERM to all processes named exactly "nginx"
+killall -9 nginx
+killall -HUP nginx
+
+# pkill vs killall:
+# pkill: regex match on name, supports -u (user), -g (group), -f (full cmd)
+# killall: exact name match, simpler but less flexible
+
+# ── Kill a process group ──────────────────────────────────────────────
+kill -- -12345    # Negative PID = send to process GROUP 12345
+# Kills the process AND all its children in the same process group
+
+# ── pgrep — find PIDs by name (no killing) ───────────────────────────
+pgrep nginx        # Print PIDs of all nginx processes
+pgrep -u alice     # PIDs of all alice's processes
+pgrep -a nginx     # Print PID AND command line
+pgrep -l nginx     # Print PID AND process name
+
+# Use in scripts:
+NGINX_PID=$(pgrep -x nginx | head -1)
+kill -HUP "$NGINX_PID"
+```
+
+---
+
+## 🔷 SIGTERM vs SIGKILL — the critical distinction
+
+```bash
+# SIGTERM (15) — the RIGHT way to stop a process
+# - Process receives the signal
+# - Custom handler can: flush buffers, close connections, clean temp files
+# - Process controls its own shutdown
+# - Allows graceful shutdown
+
+kill -15 my_app    # Send SIGTERM — please shut down cleanly
+
+# SIGKILL (9) — the nuclear option
+# - Kernel terminates the process IMMEDIATELY
+# - No cleanup possible — buffers unflushed, connections dropped
+# - File corruption risk if writing to disk
+# - Zombie left behind until parent calls wait()
+
+kill -9 my_app     # Only use when SIGTERM doesn't work!
+
+# PRODUCTION RULE: Always try SIGTERM first, then wait, then SIGKILL
+graceful_kill() {
+    local pid=$1
+    local timeout=${2:-30}
+
+    kill -SIGTERM "$pid" 2>/dev/null || return 0   # Send SIGTERM
+    local elapsed=0
+    while kill -0 "$pid" 2>/dev/null; do           # kill -0 = check existence
+        if (( elapsed >= timeout )); then
+            echo "SIGTERM timeout after ${timeout}s, sending SIGKILL"
+            kill -SIGKILL "$pid" 2>/dev/null
+            return
+        fi
+        sleep 1
+        (( elapsed++ ))
+    done
+    echo "Process $pid exited cleanly"
+}
+
+# kill -0 checks if process EXISTS (sends no signal)
+kill -0 12345 2>/dev/null && echo "process exists" || echo "process gone"
+```
+
+---
+
+## 🔷 Trapping signals in Bash scripts
+
+```bash
+# trap — install signal handler in bash script
+# Syntax: trap 'command' SIGNAL [SIGNAL...]
+
+# ── Cleanup on exit ───────────────────────────────────────────────────
 TMPFILE=$(mktemp)
+trap 'rm -f "$TMPFILE"' EXIT    # Runs on ANY exit (normal, error, signal)
+
+# EXIT is a pseudo-signal — fires when script exits for ANY reason
+# This is the most important trap pattern — always use for cleanup
+
+# ── Handle Ctrl+C gracefully ──────────────────────────────────────────
+trap 'echo "Interrupted — cleaning up..."; exit 130' INT
+# Exit 130 = 128 + 2 (SIGINT=2) — convention for signal-interrupted exit
+
+# ── Full production script with signal handling ────────────────────────
+#!/usr/bin/env bash
+set -euo pipefail
+
+TMPDIR_WORK=$(mktemp -d)
+LOCKFILE=/var/run/myjob.lock
+exec 9>"$LOCKFILE"
+flock -n 9 || { echo "Already running!"; exit 1; }
 
 cleanup() {
     echo "Cleaning up..."
-    rm -f "$TMPFILE"
-    exit 0
+    rm -rf "$TMPDIR_WORK"
+    rm -f "$LOCKFILE"
 }
 
-# Register signal handlers
-trap cleanup SIGTERM SIGINT SIGHUP
-
-# Also handle: trap cleanup EXIT  (runs on any exit)
-
-echo "Working with $TMPFILE"
-# ... do work ...
-sleep 60
-
-# The cleanup function will run if you Ctrl+C or kill -15 this script
-```
-
-### Advanced Trap Patterns
-
-```bash
-# Trap EXIT to always clean up
-trap 'rm -f /tmp/lockfile; echo "Exiting"' EXIT
-
-# Trap ERR to catch script errors
-trap 'echo "Error on line $LINENO"; exit 1' ERR
-
-# Ignore a signal
-trap '' SIGINT    # Makes Ctrl+C do nothing
-
-# Reset to default
-trap - SIGINT     # Restore default SIGINT behavior
-
-# Reload config on SIGHUP (daemon pattern)
-reload_config() {
-    echo "Reloading config..."
-    source /etc/myapp/config.conf
+handle_error() {
+    echo "Error at line $1" >&2
+    cleanup
+    exit 1
 }
-trap reload_config SIGHUP
 
-# Self-signal for deferred actions
-defer_action() { echo "Deferred!"; }
-trap defer_action SIGUSR1
-kill -USR1 $$   # $$ = current script PID
-```
+trap 'cleanup' EXIT
+trap 'echo "Caught SIGINT"; exit 130' INT
+trap 'echo "Caught SIGTERM"; exit 143' TERM
+trap 'handle_error $LINENO' ERR
 
----
+# Main script work here...
 
-## 🎤 Short Interview Answer
+# ── SIGHUP for config reload ──────────────────────────────────────────
+# Daemons use SIGHUP for live config reload (nginx, sshd, etc.)
+# In a bash daemon:
+CONFIG_FILE=/etc/myapp/config.conf
+load_config() { source "$CONFIG_FILE"; }
+load_config  # Initial load
+trap 'echo "Reloading config..."; load_config' HUP
 
-> "Signals are asynchronous notifications the kernel sends to processes. SIGTERM (15) asks a process to terminate gracefully — it can be caught and handled. SIGKILL (9) cannot be caught or ignored and immediately destroys the process. SIGHUP (1) traditionally meant the terminal hung up — daemons reuse it as a 'reload config' signal. In Bash scripts I use `trap` to register cleanup handlers so temp files and locks are cleaned up even if the script is interrupted. In production, I always try SIGTERM first with a timeout, then SIGKILL as a last resort — killing with -9 first can leave databases in inconsistent states or leave lock files behind."
+# ── Trapping for graceful shutdown in a loop ──────────────────────────
+RUNNING=true
+trap 'echo "Shutting down..."; RUNNING=false' TERM INT
 
----
-
-## 🏭 Real Production Example
-
-**Scenario: Graceful rolling restart of a web application**
-
-```bash
-#!/bin/bash
-# graceful_restart.sh — restarts app workers one at a time
-
-APP_NAME="gunicorn"
-MASTER_PID=$(pgrep -f "gunicorn.*master")
-
-echo "Master PID: $MASTER_PID"
-
-# Get worker PIDs
-WORKERS=$(pgrep -P $MASTER_PID)
-
-for pid in $WORKERS; do
-    echo "Gracefully restarting worker $pid..."
-    
-    # SIGUSR1 = gunicorn worker graceful stop (finish current request, then stop)
-    kill -USR1 $pid
-    
-    # Wait for it to stop and new worker to start
-    sleep 5
-    
-    # Verify it stopped
-    if kill -0 $pid 2>/dev/null; then
-        echo "Worker $pid didn't stop, forcing..."
-        kill -9 $pid
-    fi
+while $RUNNING; do
+    # Do work...
+    sleep 1
 done
+echo "Exited cleanly"
 
-echo "All workers restarted"
+# ── ignore a signal ───────────────────────────────────────────────────
+trap '' HUP    # Ignore SIGHUP (like nohup does)
+trap '' PIPE   # Ignore SIGPIPE (common for pipelines)
 
-# nginx: reload config without downtime
-nginx -t && kill -HUP $(cat /var/run/nginx.pid)
+# ── Reset signal to default ───────────────────────────────────────────
+trap - HUP     # Reset SIGHUP to default behavior
+
+# ── List current traps ────────────────────────────────────────────────
+trap -p        # Print all current trap settings
 ```
 
 ---
 
-## 💬 Common Interview Questions
+## 🔷 Short crisp interview answer
 
-**Q: When would you use SIGKILL vs SIGTERM?**
-> Always try SIGTERM first — it gives the application a chance to flush buffers, close database connections, release locks, and write a clean shutdown log. SIGKILL is for processes that are hung and not responding to SIGTERM, or processes in an infinite loop that are ignoring signals. The risk of SIGKILL is data corruption (if the process was mid-write), dirty database states, and orphaned lock files.
-
-**Q: What happens to child processes when the parent receives SIGKILL?**
-> SIGKILL only kills the target process — its children are NOT automatically killed. They become orphans and get re-parented to PID 1 (systemd/init). If you need to kill an entire process tree, use `kill -- -PGID` (send signal to the process group) or `pkill -P $PID` to kill children first.
-
-**Q: How do daemons use SIGHUP?**
-> Originally, SIGHUP meant "the controlling terminal hung up" — which was a reason to terminate. Since daemons don't have a controlling terminal, developers repurposed SIGHUP as a "reload your configuration" signal. Examples: `nginx -s reload` sends SIGHUP to the master process; `kill -HUP $(pidof sshd)` reloads sshd config; logrotate uses SIGHUP to tell apps to reopen log files after rotation.
-
-**Q: What is `kill -0`?**
-> Signal 0 is a special "null signal" — it doesn't actually send a signal, but it performs all the error checking (permission checks, process existence). If `kill -0 $PID` returns 0, the process exists and you have permission to signal it. Return code 1 means either the process doesn't exist or you don't have permission. Used in scripts to check if a process is alive.
+> "Signals are asynchronous software interrupts from the kernel to a process. `kill` sends them — despite the name it's a signal sender, not just for killing. SIGTERM (15) is the polite request: the process catches it, cleans up, and exits. SIGKILL (9) is instant kernel-level termination — no handler runs, no cleanup. Always SIGTERM first, wait, then SIGKILL. In scripts, `trap 'cleanup' EXIT` is essential — it fires on any exit including signals. SIGHUP is conventionally used for daemon config reload — `kill -HUP nginx_pid` reloads nginx without downtime. `kill -0 pid` checks process existence without sending a real signal."
 
 ---
 
-## ⚠️ Gotchas & Edge Cases
-
-1. **SIGKILL on a D-state process** — A process in uninterruptible sleep (D state, waiting on I/O) will NOT be killed by SIGKILL immediately. The signal is pending but can't be delivered until the process returns from the I/O wait. If the I/O never completes (hung NFS mount), the process cannot be killed without fixing the underlying I/O issue or rebooting.
-
-2. **`killall` is dangerous** — `killall nginx` kills ALL processes named nginx, including potential nginx processes belonging to other users or running in containers with shared PID namespaces. Use `pkill -f` with a more specific pattern or kill by PID.
-
-3. **Bash traps are inherited by subshells** (sometimes) — trap handlers set in a parent script may or may not be inherited by subshells depending on how they're invoked. Use `( trap - SIGTERM; exec child_command )` to reset traps in a subshell.
-
-4. **SIGPIPE gotcha** — a pipeline like `curl | grep | head -1` will get SIGPIPE sent to `curl` when `head` exits after the first line. Many tools ignore SIGPIPE, but some don't. If your script has `set -e` (exit on error), a non-zero exit from a SIGPIPE can cause unexpected script termination.
-
-5. **Docker SIGTERM timeout** — `docker stop` sends SIGTERM, waits 10 seconds, then sends SIGKILL. If PID 1 in your container doesn't handle SIGTERM (e.g., you're using a shell script as entrypoint without `exec`), the 10-second grace period is wasted and the container is force-killed.
-
----
-
-## 🔗 Connected Concepts
-
-- **Process states (2.5)** — D state processes can't be killed
-- **Job control (2.2)** — SIGTSTP, SIGCONT used by fg/bg
-- **Zombie processes (2.9)** — SIGCHLD is how parents know children died
-- **Bash scripting** — `trap` for cleanup and resilience
-- **Docker/containers** — proper PID 1 signal handling
-
----
----
-
-# 🟡 2.5 — Process States: R, S, D, Z, T
-
-## 🔥 High Frequency Topic — Direct Connection to Production Debugging
-
-## 📖 What It Is (Simple Terms)
-
-Every process is in exactly one state at any moment — it tells you what the process is currently doing (or waiting for). The state appears in `ps` output under the `STAT` or `S` column.
-
----
-
-## ⚙️ State Machine Diagram
-
-```
-                    ┌────────────────────────────────┐
-                    │                                │
-          fork()    ▼          schedule()            │
-[Created] ──────► [R - Runnable] ◄──────────── [S - Sleeping]
-                    │     ▲                          ▲
-               CPU  │     │ preempt                  │  event
-               runs ▼     │                          │  arrives
-                  [Running]─────────────────────────►│
-                    │          I/O, sleep()           │
-                    │
-                    ├──── slow I/O, kernel wait ────► [D - Uninterruptible Sleep]
-                    │                                      │
-                    ├──── Ctrl+Z / SIGSTOP ─────────► [T - Stopped]
-                    │                                      │
-                    │                              SIGCONT │
-                    │◄─────────────────────────────────────┘
-                    │
-                    └──── exit() ────────────────── [Z - Zombie]
-                                                         │
-                                               parent wait() ──► [Gone]
-```
-
----
-
-## 🔑 Process State Reference
-
-### R — Running or Runnable
+## ⚠️ Gotchas
 
 ```bash
-ps aux | awk '$8 == "R" {print}'
+# GOTCHA 1: SIGKILL leaves a zombie until parent calls wait()
+# Process is killed but PID entry stays in process table
+# Parent must call wait() to clean up the zombie entry
+
+# GOTCHA 2: kill -9 can corrupt data
+# Databases, write-ahead logs, in-memory buffers — all unflushed
+# Use SIGTERM and wait for clean exit whenever possible
+
+# GOTCHA 3: kill sends to PID, not name — verify PID first!
+# kill 1234    ← are you SURE 1234 is the process you think it is?
+# ps -p 1234   ← verify before killing
+# pkill nginx  ← safer — sends to all processes named nginx
+
+# GOTCHA 4: trap EXIT vs trap ERR vs set -e interaction
+# set -e makes script exit on error
+# trap ERR fires before set -e exits
+# trap EXIT fires AFTER ERR handler
+# Order: ERR handler → set -e exit → EXIT handler
+
+# GOTCHA 5: Subshells inherit traps in a modified way
+# Subshells RESET signals to default (trap handlers don't transfer)
+# Functions inherit the parent's traps
+( trap 'echo hi' EXIT; exit )   # Does print "hi" — subshell runs handler
 ```
 
-- Process is currently on a CPU OR is in the run queue ready to run
-- Normal for active processes
-- Multiple `R` state processes = CPU contention if more than CPU cores
+---
+---
 
-### S — Interruptible Sleep
+# 2.5 Process States — R, S, D, Z, T — What Each Means in Production
 
-```bash
-# Most processes are in S state most of the time
-ps aux | awk '$8 == "S" {print}' | wc -l
-```
+## 🔷 What process states are
 
-- Waiting for an event: keyboard input, network data, timer, signal
-- Can be woken up by a signal (hence "interruptible")
-- This is healthy — processes should spend most of their time here
-- Example: nginx worker waiting for a connection, bash waiting for you to type
+The kernel tracks the state of every process — whether it's actively using CPU, waiting for something, or stopped. Understanding states is critical for diagnosing production issues: zombie processes, D-state hangs, and excessive sleeping processes all mean very different things.
 
-### ⚠️ D — Uninterruptible Sleep (DISK WAIT)
+---
 
-```bash
-# Find D-state processes — critical for diagnosing I/O hangs
-ps aux | awk '$8 ~ /^D/ {print}'
-```
-
-- Waiting for I/O that **cannot be interrupted** by signals — not even SIGKILL
-- Kernel needs this guarantee for consistency (e.g., can't interrupt mid-filesystem-write)
-- **Brief D-state = normal** (disk writes happen)
-- **Sustained D-state = severe problem**: hung NFS, slow disk, storage system issue
-- High D-state count = the cause of high load average without high CPU
-
-```bash
-# Production diagnostic when load is high but CPUs idle:
-ps -eo pid,stat,wchan,comm | grep "^[0-9]* D"
-# WCHAN shows what kernel function the process is stuck in
-# "nfs_execute_op" → NFS hang
-# "jbd2_log_wait" → ext4 journal wait
-```
-
-### Z — Zombie
-
-```bash
-ps aux | awk '$8 == "Z" {print}'
-```
-
-- Process has exited but parent hasn't called `wait()` to collect exit status
-- Has NO memory, NO CPU — just a row in the process table
-- **Cannot be killed** (it's already dead!)
-- The slot is reserved until parent reads the exit status
-- Small number of zombies = normal; large numbers = parent has a bug
-- Fix: Fix the parent application, or kill the parent (kernel re-parents to init which reaps them)
-
-### T — Stopped
-
-```bash
-ps aux | awk '$8 == "T" {print}'
-```
-
-- Suspended — received SIGSTOP or SIGTSTP (Ctrl+Z)
-- Not using CPU, stays in memory
-- Resumes with SIGCONT
-- Also appears during debugging with `gdb` (ptrace stops the process)
-
-### Additional State Flags (Modifiers)
+## 🔷 The state machine
 
 ```
-STAT column can have multiple characters:
-R    = Running
-S    = Sleeping
-D    = Uninterruptible sleep
-Z    = Zombie
-T    = Stopped
-
-Modifiers:
-s    = Session leader (e.g., Ss = sleeping session leader)
-l    = Multi-threaded
-+    = Foreground process group
-<    = High priority (negative nice value)
-N    = Low priority (positive nice value)
-L    = Has locked pages in memory (real-time)
-
-Example:
-Ss   = sleeping, session leader (typical for master daemon)
-S+   = sleeping, foreground
-Sl   = sleeping, multi-threaded
-R<   = running, high priority
+         fork()
+           │
+           ▼
+        CREATED
+           │
+           ▼
+    ┌──── RUNNING (R) ────────────────────────────────┐
+    │   actively using CPU                             │
+    │   OR ready, waiting for CPU slice                │
+    └──┬──────────────────────────────────────────────┘
+       │                    │                    │
+       │ I/O syscall        │ Ctrl+Z /           │ exit()
+       │ lock wait          │ SIGSTOP            │
+       ▼                    ▼                    ▼
+INTERRUPTIBLE        STOPPED (T)           ZOMBIE (Z)
+ SLEEP (S)           (paused,               (dead, waiting
+ (waiting,            awaiting               for parent
+  woken by            SIGCONT)               to wait())
+  signal or event)
+       │
+       │ disk I/O
+       │ kernel lock
+       ▼
+UNINTERRUPTIBLE
+  SLEEP (D)
+  (cannot be woken
+   by signals —
+   not even SIGKILL)
 ```
 
 ---
 
-## 🎤 Short Interview Answer
+## 🔷 State R — Running
 
-> "There are five main process states. R means running or ready to run. S means sleeping — waiting for an event like I/O or a signal — this is the normal state for most processes. D is uninterruptible sleep, waiting on kernel I/O — this state cannot be killed with SIGKILL and prolonged D-state usually indicates a storage problem like a hung NFS mount. Z is zombie — the process has exited but its parent hasn't called wait() to collect the exit status, leaving a dead process table entry. T is stopped, usually by Ctrl+Z or SIGSTOP. In production, I watch for D-state processes whenever load average is high but CPUs are mostly idle — it's the classic storage bottleneck signature."
+```bash
+# R = Running OR Runnable (ready to run, waiting for CPU)
+# Both "actually on CPU now" and "ready, waiting for scheduler" are R
+
+ps aux | grep " R "
+# PID   %CPU  STAT  COMMAND
+# 12345  99.9   R   [crypto thread]   ← actively running
+# 12346  45.2   R+  bash              ← R+ means foreground
+
+# STAT modifiers (second letter):
+# + = foreground process group
+# s = session leader
+# l = multi-threaded (uses CLONE_THREAD)
+# N = low priority (nice > 0)
+# < = high priority (nice < 0)
+
+# High R count = CPU contention
+ps aux | awk '$8 ~ /^R/ {count++} END {print "R state:", count}'
+
+# One persistently R process = CPU hog
+# Many R processes = CPU is oversubscribed
+```
 
 ---
 
-## 🏭 Real Production Example
-
-**Alert: Load average = 45 on a 16-core server. CPUs show 5% usage. What's happening?**
+## 🔷 State S — Interruptible Sleep
 
 ```bash
-# Step 1: Count process states
-ps -eo stat | sort | uniq -c | sort -rn
-# 180 S    ← mostly sleeping (normal)
-#  38 D    ← 38 D-state processes! This is the problem
-#   2 R
-#   1 Ss
+# S = Sleeping, waiting for an event or I/O
+# MOST processes are in S state — this is completely normal
+# Can be woken by: a signal, an event, I/O completion
 
-# Step 2: Identify what D-state processes are waiting on
-ps -eo pid,stat,wchan,comm | awk '$2~/D/{print}'
-# PID   STAT  WCHAN            COMMAND
-# 1234  D     nfs_execute_op   java
-# 1235  D     nfs_execute_op   java
-# ...38 total all stuck on NFS
+# Examples:
+# bash waiting for keyboard input → S
+# nginx worker waiting for HTTP request → S
+# sleep 100 → S (waiting for timer)
 
-# Step 3: Check NFS mount
-df -h   # hangs! (df tries to stat all filesystems)
+ps aux | awk '$8 == "S" {count++} END {print "S state:", count}'
+# Typical healthy system: 90%+ of processes are S
+
+# Why S is important:
+# Process in S CAN receive and respond to signals (SIGTERM, etc.)
+# If you kill -15 a sleeping process, it wakes up and handles the signal
+```
+
+---
+
+## 🔷 State D — Uninterruptible Sleep (THE dangerous one)
+
+```bash
+# D = "Disk sleep" — waiting for I/O that CANNOT be interrupted
+# Process is deep in a kernel code path handling disk/network I/O
+# CANNOT receive signals — not even SIGKILL!
+
+# Causes:
+# - Waiting for disk read/write to complete
+# - Waiting for NFS mount to respond
+# - Waiting for a kernel lock
+# - Stuck on a hung/slow storage device
+
+# How to spot it:
+ps aux | awk '$8 ~ /^D/ {count++} END {print "D state:", count}'
+ps aux | grep " D "
+
+# D for a brief moment = normal (I/O in progress)
+# D for minutes/hours  = PROBLEM (hung I/O, stuck NFS, bad disk)
+
+# What to do with D state processes:
+# 1. Identify what they're waiting for
+cat /proc/12345/wchan    # Shows kernel function they're blocking in
+# "nfs_file_read" → NFS issue
+# "jbd2_journal_commit_transaction" → disk journal flush
+# "mutex_lock" → kernel lock contention
+
+# 2. Check for NFS issues
 mount | grep nfs
-# 10.0.1.50:/data on /mnt/nfs type nfs (rw,relatime)
+df -h    # Hangs on NFS = mounted NFS is unresponsive
 
-# Step 4: Check connectivity to NFS server
-ping 10.0.1.50    # no response → NFS server down!
+# 3. Check I/O wait
+iostat -x 1    # Look for high await (ms per I/O operation)
 
-# Step 5: Mitigation
-# Can't kill those processes (they're in D-state with SIGKILL pending but not delivered)
-# Options:
-# 1. Restore NFS server → processes auto-recover
-# 2. Force unmount: umount -l /mnt/nfs (lazy unmount)
-# 3. Last resort: reboot
+# 4. If it's a disk issue:
+dmesg | tail -50    # Kernel I/O error messages
 
-umount -l /mnt/nfs   # lazy unmount — detaches from filesystem namespace
-# D-state processes now get EIO error, transition to R, then exit or handle error
+# ⚠️ You CANNOT kill a D state process — SIGKILL is ignored!
+# The process will die on its own when the I/O completes or times out
+# If it never completes: reboot is the only option
 ```
 
 ---
 
-## 💬 Common Interview Questions
-
-**Q: Can you kill a zombie process?**
-> No — a zombie is already dead. It has no memory, no CPU, no resources. You can't kill it directly. The only way to remove it is for its parent process to call `wait()` (or `waitpid()`) to collect its exit status, which removes the process table entry. If the parent is buggy and never calls wait, you can kill the parent — the kernel will then re-parent the zombies to PID 1 (systemd), which periodically reaps orphaned zombies.
-
-**Q: Why can't SIGKILL kill a D-state process?**
-> D-state (uninterruptible sleep) means the process is executing a kernel code path that cannot be safely interrupted — for example, it's in the middle of a filesystem operation where stopping partway would leave data structures inconsistent. SIGKILL is technically delivered (pending bit is set), but it won't be acted on until the process exits the uninterruptible section. If the I/O operation never completes (e.g., NFS server is down), the process is stuck indefinitely. This is a kernel design decision for data integrity.
-
-**Q: What does a high count of D-state processes tell you?**
-> It strongly indicates an I/O subsystem problem. Most commonly: NFS mount is hung or slow, disk is failing or saturated, SAN/NAS latency has spiked, or a storage driver has a bug. The load average will be high (D-state contributes to load), but CPU usage will be low. This is a key diagnostic pattern — "high load, low CPU" → look for D-state processes.
-
----
-
-## ⚠️ Gotchas & Edge Cases
-
-1. **Zombie processes don't consume memory or CPU** — they're just a table entry. A few zombies are harmless. Only care if there are thousands (exhausts PID space or indicates a systemic parent bug).
-
-2. **Process can be in D state on network I/O too** — not just disk. A `read()` on a TCP socket that's in kernel-level blocking I/O can show as D. More commonly seen with NFS (which uses kernel-level RPC), not regular user-space network I/O.
-
-3. **Load average counts D-state processes** — this is why high load + low CPU is a storage problem, not a compute problem. Adding more CPUs won't fix it.
-
-4. **Zombie processes can block reuse of PIDs** — Linux has a PID limit (default 32768, adjustable via `/proc/sys/kernel/pid_max`). If you have thousands of zombies, they consume PID table space. Eventually no new processes can be created.
-
----
-
-## 🔗 Connected Concepts
-
-- **Signals (2.4)** — D-state processes can't receive signals
-- **Load average (2.3)** — D-state contributes to load
-- **`/proc/PID/wchan`** — shows kernel function a D-state process is waiting in
-- **Zombie processes (2.9)** — deep dive on zombie lifecycle
-
----
----
-
-# 🟡 2.6 — `nice` & `renice`: CPU Scheduling Priority
-
-## 📖 What It Is (Simple Terms)
-
-`nice` and `renice` control a process's **priority hint** to the CPU scheduler. A "nicer" process (higher nice value) voluntarily yields CPU time to others. A less-nice process (lower value) demands more CPU.
-
-Think of it as a politeness scale: a process with a high nice value is very polite and lets others go first; one with a low nice value is aggressive and pushes to the front of the line.
-
----
-
-## ⚙️ How It Works Internally
-
-```
-Nice Value Scale:
--20 ────────────────────────────────── +19
-Highest Priority              Lowest Priority
-(least nice)                  (most nice)
-
-Default = 0
-
-Relationship:
-PR (kernel priority) = 20 + NI (nice value)
-So: nice -20 → PR 0  (highest)
-    nice 0   → PR 20 (default)
-    nice +19 → PR 39 (lowest)
-```
-
-The kernel's CFS scheduler uses priority to allocate CPU time shares — higher priority processes get proportionally more CPU time when the system is contended.
-
----
-
-## 🔑 Commands
+## 🔷 State Z — Zombie
 
 ```bash
-# Start a process with a specific nice value
-nice -n 10 python backup.py     # lower priority
-nice -n -10 python realtime.py  # higher priority (requires root for negative)
-nice -n 19 tar -czf backup.tgz /data/  # run backup at lowest priority
+# Z = Zombie — process has exited but parent hasn't called wait()
+# The process is DEAD — no memory, no resources, not running
+# BUT: it holds a PID and an entry in the process table
+#      (to preserve the exit code for the parent to read)
 
-# Change priority of a running process
-renice 10 -p 1234               # by PID
-renice 10 -u www-data           # all processes of a user
-renice -5 -p 1234               # requires root (negative = higher priority)
+# Zombies look like:
+ps aux | grep Z
+# 12345  parent  20  0  0  0  0  Z  ...  [dead_process] <defunct>
 
-# Check current nice/priority values
-ps -eo pid,ni,pri,comm --sort=-ni | head
+# A few zombies = completely normal (transient, cleaned up quickly)
+# Many zombies = parent has a bug (not calling wait())
+# 1000s of zombies = eventually exhausts PID space → system instability
 
-# In top: NI column shows nice value, PR shows kernel priority
-# Press r in top to renice interactively
-```
+# How to find zombies and their parents:
+ps -eo pid,ppid,stat,cmd | awk '$3 ~ /Z/ {print "zombie:", $0}'
+# Get the PPID — that's the buggy parent
+# Sending SIGCHLD to parent may trigger it to call wait():
+kill -CHLD <parent_pid>
 
-### `ionice` — I/O Priority (Bonus)
+# If parent is stuck or buggy → kill the parent
+# When parent dies → zombies are re-parented to PID 1 (systemd)
+# Systemd calls wait() immediately → zombies cleaned up
 
-```bash
-# Set I/O scheduling class and priority
-ionice -c 3 -p 1234              # Class 3: Idle (lowest, only runs when nothing else needs disk)
-ionice -c 2 -n 7 tar czf b.tgz  # Class 2: Best-effort, priority 7 (lowest within class)
-
-# Run backup with both CPU and I/O deprioritized
-nice -n 19 ionice -c 3 rsync -av /data /backup/
-
-# Classes:
-# 0: None (uses CFQ default)
-# 1: Real-time (highest, use carefully — can starve other I/O)
-# 2: Best-effort (default, 0-7 priority within class)
-# 3: Idle (only uses I/O when no other process needs it)
+# You CANNOT kill a zombie directly — it's already dead
+kill -9 <zombie_pid>   # Silently ignored — zombie is already dead
 ```
 
 ---
 
-## 🎤 Short Interview Answer
+## 🔷 State T — Stopped
 
-> "Nice values range from -20 (highest priority) to +19 (lowest). The default is 0. Regular users can only increase nice values (be nicer to others). Root can set negative values for higher priority. I use `nice -n 19` for background jobs like backups or log compression that shouldn't compete with production traffic. For already-running processes, `renice` changes priority on the fly. I also use `ionice -c 3` alongside `nice 19` for backup tasks so they don't impact disk I/O either — a doubly polite backup job."
+```bash
+# T = Stopped — process received SIGSTOP or SIGTSTP (Ctrl+Z)
+# Process is frozen in place, not running, not waiting for I/O
+# Can be resumed with SIGCONT
+
+# T state in ps:
+ps aux | grep " T "
+# Shows: STAT = T  or  T+
+
+# How processes get to T:
+# Ctrl+Z in terminal → SIGTSTP → T state
+# kill -STOP pid     → SIGSTOP → T state (cannot be caught)
+# Debugger attaches  → SIGSTOP → T state
+
+# Resume with:
+kill -CONT 12345    # Send SIGCONT
+fg %1               # Or from shell job control
+
+# Special substate in newer kernels:
+# t (lowercase) = traced/stopped by debugger (strace, gdb attached)
+```
 
 ---
 
-## 🏭 Real Production Example
+## 🔷 Production diagnosis table
 
-```bash
-#!/bin/bash
-# Low-impact backup script — won't starve production processes
-
-# Run tar backup at lowest CPU and I/O priority
-nice -n 19 ionice -c 3 \
-    tar -czf /backup/data-$(date +%Y%m%d).tgz \
-    /var/lib/mysql/data/ \
-    2>>/var/log/backup.log
-
-echo "Backup completed: $?"
 ```
+STAT  │ Meaning               │ Normal?  │ Action if unexpected
+──────┼───────────────────────┼──────────┼────────────────────────────
+R     │ Running/Runnable      │ Yes      │ If many R: check load, CPU
+S     │ Interruptible sleep   │ Yes (90%)│ Normal — waiting for events
+D     │ Uninterruptible sleep │ Brief OK │ If minutes+: check disk/NFS
+Z     │ Zombie                │ Transient│ If many: fix parent's wait()
+T     │ Stopped               │ Debugging│ kill -CONT or fg to resume
+
+Key production scenarios:
+  Load high, CPU low, many D → disk/NFS bottleneck
+  Load high, CPU high, many R → CPU oversubscribed
+  Load OK, many Z growing    → parent process bug (missing wait)
+  Process won't die          → check if it's in D state
+```
+
+---
+
+## 🔷 Short crisp interview answer
+
+> "Linux processes have 5 main states. R is running or runnable — on CPU or queued. S is interruptible sleep — normal for processes waiting for I/O or events; can receive signals. D is uninterruptible sleep — blocked deep in kernel waiting for I/O; CANNOT receive signals including SIGKILL. Z is zombie — process exited but parent hasn't called wait() to collect the exit status; it holds a PID but no resources. T is stopped via SIGSTOP/SIGTSTP. In production, D state hanging for minutes means NFS or disk problems; many Z means a parent process bug not calling wait(); many R means CPU oversubscription."
 
 ---
 
 ## ⚠️ Gotchas
 
-1. **Nice values only matter under CPU contention** — if the CPU is mostly idle, nice values have no effect. A nice 19 process runs just as fast as a nice 0 process on an idle system.
+```bash
+# GOTCHA 1: You cannot kill a D state process
+kill -9 <D_state_pid>   # IGNORED — SIGKILL cannot interrupt D state
+# The process will exit when the I/O completes or times out
+# Only option if it never recovers: reboot
 
-2. **Only root can set negative nice values** — regular users can only go from their current priority toward +19, not toward -20.
+# GOTCHA 2: You cannot kill a zombie (it's already dead)
+kill -9 <zombie_pid>   # Process is dead, kill does nothing
+# Kill the PARENT to clean up zombies
 
-3. **Nice is a hint, not a guarantee** — it influences the scheduler's weighting but doesn't guarantee exact CPU time ratios.
+# GOTCHA 3: High zombie count → PID exhaustion
+cat /proc/sys/kernel/pid_max   # Maximum PIDs (default 32768 or 4194304)
+# 1000s of zombies can exhaust this, preventing new processes
 
-4. **Threads inherit nice values** — setting nice on a process affects all its threads.
+# GOTCHA 4: D state can show 100% CPU wait in top
+# Process not running but system load is high
+# iowait in %Cpu line will be high
+
+# GOTCHA 5: R includes "ready to run" — not just "on CPU"
+# A machine with 100 R-state processes doesn't have 100 CPUs
+# Scheduler picks one at a time — others wait their turn
+```
 
 ---
 ---
 
-# 🟡 2.7 — `/proc/PID` Internals: `cmdline`, `maps`, `fd`, `status`, `limits`
+# 2.6 `nice` & `renice` — CPU Scheduling Priority
 
-## 🧠 Deeply Tied to Linux Kernel Internals
+## 🔷 What niceness is
 
-## 📖 What It Is (Simple Terms)
-
-`/proc` is a **virtual filesystem** — it doesn't exist on disk. The kernel generates its contents on-the-fly when you read from it. Each process gets a directory `/proc/PID/` containing everything the kernel knows about that process.
+"Niceness" is a hint to the Linux scheduler about how much CPU time a process should get relative to others. A **lower nice value = higher priority** (less "nice" to other processes). A **higher nice value = lower priority** (more "nice" — yields CPU to others).
 
 ---
 
-## 🔑 Key Files in `/proc/PID/`
+## 🔷 How it works internally
 
-```bash
-PID=1234
-ls /proc/$PID/
-# cmdline  cwd  environ  exe  fd  fdinfo  limits  maps  mem  net  
-# oom_adj  oom_score  root  smaps  stat  status  task  wchan
+```
+Nice values:
+  -20 ────────────────────── 0 ─────────────────────── +19
+  Highest priority        Default        Lowest priority
+  (least nice to others)             (most nice to others)
+
+The CFS scheduler converts nice values to CPU time weights:
+  nice -20 → weight 88761  (gets ~10x more CPU than nice 0)
+  nice   0 → weight  1024  (default)
+  nice  19 → weight    15  (gets ~1/15 of nice 0's CPU)
+
+This is RELATIVE, not absolute:
+  If only one process is running, it gets 100% CPU regardless of nice
+  Nice matters only when COMPETING for CPU
 ```
 
-### `/proc/PID/cmdline` — Full Command
+---
+
+## 🔷 `nice` — Start a process with adjusted priority
 
 ```bash
-cat /proc/$PID/cmdline | tr '\0' ' '
-# Args are null-byte separated, tr converts to spaces
-# Example: python /app/server.py --port 8080 --workers 4
+# Syntax: nice -n VALUE command
+# Default nice value: 0
+# Only root can set NEGATIVE nice values (higher priority)
 
-# Equivalent to:
-ps -p $PID -o cmd=
+# Start a process with lower priority (positive nice)
+nice -n 10 ./cpu_intensive_job.sh    # lower priority
+nice -n 19 ./batch_job.sh           # lowest priority
+nice ./background_task.sh           # default +10 (nice without -n)
+
+# Start a process with higher priority (negative nice — root only)
+sudo nice -n -10 ./critical_service.sh   # higher priority
+sudo nice -n -20 ./realtime_task.sh      # highest priority
+
+# Check current nice value of a process:
+ps -p 12345 -o pid,ni,cmd
+# PID  NI  CMD
+# 12345  10  ./cpu_intensive_job.sh
+
+# Common use cases:
+# Compile jobs during business hours (don't disturb users)
+nice -n 15 make -j8
+
+# Batch data processing (run at low priority)
+nice -n 19 python3 process_dataset.py
+
+# Backup jobs (don't impact production)
+nice -n 15 rsync -av /data /backup
 ```
 
-### `/proc/PID/status` — Process Summary
+---
+
+## 🔷 `renice` — Change priority of running process
 
 ```bash
-cat /proc/$PID/status
-# Name:   python
-# State:  S (sleeping)
-# Tgid:   1234      ← Thread Group ID (= PID for single-threaded)
-# Pid:    1234
-# PPid:   1000      ← Parent PID
-# Uid:    1000 1000 1000 1000   ← Real, Effective, Saved, FS UID
-# VmRSS:  512000 kB ← Resident memory (what's actually in RAM)
-# VmSize: 2048000 kB ← Virtual memory total
-# Threads: 8        ← Number of threads
-# SigBlk: 0000000000000000  ← Blocked signals (bitmask)
-# SigIgn: 0000000000001000  ← Ignored signals
-# SigCgt: 0000000182000000  ← Caught signals (custom handlers)
+# Syntax: renice -n VALUE -p PID
+# Syntax: renice -n VALUE -u USER
+
+# Lower priority (any user can make OWN processes nicer)
+renice -n 10 -p 12345    # Change PID 12345 to nice 10
+renice -n 15 -p 12345    # Change to nice 15
+
+# ⚠️ Non-root users can ONLY increase nice (make lower priority)
+# Non-root CANNOT decrease nice (cannot raise priority)
+renice -n 5 -p 12345    # OK if process is currently nice 10 or higher? NO!
+# Actually: non-root can ONLY go from current value UPWARD (more positive)
+
+# Root can set any value in any direction:
+sudo renice -n -5 -p 12345   # Increase priority
+sudo renice -n 19 -p 12345   # Set to lowest priority
+
+# Renice all processes of a user:
+renice -n 10 -u www-data    # Lower all www-data processes
+
+# Renice a process group:
+renice -n 5 -g 12345        # All processes in group 12345
+
+# Dynamic niceness with top:
+# In top: press 'r' → enter PID → enter new nice value
+
+# In htop:
+# Select process → F7 (decrease nice = higher priority)
+#                  F8 (increase nice = lower priority)
 ```
 
-### `/proc/PID/fd/` — Open File Descriptors
+---
+
+## 🔷 Real-world patterns
 
 ```bash
-ls -la /proc/$PID/fd/
-# lrwxrwxrwx 1 user user 64  fd/0 -> /dev/pts/0        ← stdin
-# lrwxrwxrwx 1 user user 64  fd/1 -> /dev/pts/0        ← stdout
-# lrwxrwxrwx 1 user user 64  fd/2 -> /dev/pts/0        ← stderr
-# lrwxrwxrwx 1 user user 64  fd/3 -> /var/log/app.log  ← log file
-# lrwxrwxrwx 1 user user 64  fd/4 -> socket:[12345]    ← TCP connection
-# lrwxrwxrwx 1 user user 64  fd/5 -> /tmp/app.lock     ← lock file
+# Pattern 1: CPU-intensive batch job that shouldn't impact production
+#!/usr/bin/env bash
+# At the top of heavy batch scripts:
+renice -n 15 -p $$       # Renice THIS script's process
+ionice -c 3 -p $$        # Also lower I/O priority (idle class)
 
-# Count open FDs
-ls /proc/$PID/fd | wc -l
+# Pattern 2: Automated backup at low priority
+0 2 * * * nice -n 19 ionice -c 3 /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1
 
-# Find if process has a deleted file still open (fd leak diagnostic)
-ls -la /proc/$PID/fd | grep deleted
-# lrwx  fd/6 -> /var/log/old.log (deleted)
-# → The file is deleted from disk but still open — taking up disk space!
-# Fix: HUP the process to reopen log files (logrotate does this)
+# Pattern 3: Emergency — critical process getting starved
+# Your database is being starved by a rogue process
+ps aux | grep " R " | head    # Find the CPU hogs
+sudo renice -n 19 -p <hog_pid>    # Demote it immediately
+sudo renice -n -5  -p <db_pid>    # Promote the DB
+
+# Pattern 4: Check nice values in top
+# NI column in top shows nice values
+# PR column = actual kernel priority = 20 + nice value
+# PR 20 = nice 0 (default)
+# PR 39 = nice 19 (lowest user priority)
+# PR -20 to -2 = kernel/rt priorities
+
+# ionice — I/O scheduling priority (separate from CPU nice)
+ionice -c 1 -n 0 ./realtime    # Realtime I/O class (root only)
+ionice -c 2 -n 7 ./batch       # Best-effort, lowest priority
+ionice -c 3 ./background        # Idle class — only when nothing else needs disk
+ionice -p 12345                 # Check current I/O class of process
 ```
 
-### `/proc/PID/maps` — Memory Map
+---
+
+## 🔷 Short crisp interview answer
+
+> "Nice values range from -20 (highest CPU priority) to +19 (lowest). The default is 0. The scheduler gives more CPU time slices to lower nice values when processes compete for CPU. `nice -n 15 ./job.sh` starts a job at reduced priority. `renice -n 10 -p PID` adjusts a running process. Only root can set negative nice values (raise priority). In production I use nice+19 for batch jobs, backups, and compiles to prevent them impacting interactive or production workloads. `ionice` handles I/O scheduling separately — the idle class (`-c 3`) makes a process do I/O only when the disk is otherwise idle."
+
+---
+
+## ⚠️ Gotchas
 
 ```bash
-cat /proc/$PID/maps
-# 7f8a42000000-7f8a42400000 r-xp 00000000 08:01 123456  /usr/lib/python3.10/lib-dynload/...
-# 7f8a42600000-7f8a42601000 rw-p 00000000 00:00 0       [heap]
-# 7ffe01234000-7ffe01256000 rw-p 00000000 00:00 0       [stack]
-# 7f8a42800000-7f8a42801000 r--p 00000000 fd:01 789     /etc/localtime
+# GOTCHA 1: Non-root cannot raise priority (decrease nice)
+renice -n 5 -p 12345   # If current is nice 10 → FAILS for non-root!
+# "setpriority: Permission denied"
+# Only root can go to lower (more negative) nice values
+
+# GOTCHA 2: Nice only matters when processes COMPETE for CPU
+# If you're the only process using CPU, nice 19 still gets 100%
+# Nice matters during CPU contention — otherwise irrelevant
+
+# GOTCHA 3: nice -n vs nice without -n
+nice -n 10 cmd    # Set nice to +10
+nice cmd          # ALSO sets to +10 (default adjustment is +10)
+nice -10 cmd      # BSD syntax — sets nice to -10! (confusing)
+
+# GOTCHA 4: PR vs NI in top
+# PR = 20 + NI for normal processes (user-visible priority)
+# PR values < 0 are real-time priorities (not nice-based)
+# Don't confuse PR with NI — renice changes NI not PR directly
+
+# GOTCHA 5: nice affects process AND its children
+nice -n 15 ./script.sh
+# ALL processes that script spawns also run at nice 15
+# This is usually what you want for batch jobs
+```
+
+---
+---
+# 2.7 `/proc/PID` Internals — `cmdline`, `maps`, `fd`, `status`, `limits`
+
+## 🔷 What /proc is
+
+`/proc` is a **virtual filesystem** — it has no files on disk. The kernel generates every file's content on-the-fly when you read it. `/proc/PID/` gives you a real-time window into every aspect of a running process without needing special tools.
+
+---
+
+## 🔷 /proc/PID layout
+
+```
+/proc/12345/
+├── cmdline       ← full command line (null-separated)
+├── comm          ← process name (short, 15 chars max)
+├── cwd           ← symlink to current working directory
+├── environ       ← environment variables (null-separated)
+├── exe           ← symlink to the executable binary
+├── fd/           ← directory of symlinks to open file descriptors
+│   ├── 0         → /dev/pts/0  (stdin)
+│   ├── 1         → /dev/pts/0  (stdout)
+│   ├── 2         → /dev/pts/0  (stderr)
+│   ├── 3         → /var/log/app.log
+│   └── 4         → socket:[12345]
+├── fdinfo/       ← detailed info about each file descriptor
+├── maps          ← memory mappings (virtual address space layout)
+├── smaps         ← detailed memory stats per mapping
+├── mem           ← process memory (readable with ptrace)
+├── net/          ← network stats from this process's view
+├── ns/           ← namespace symlinks (net, mnt, pid, etc.)
+├── stat          ← process status (machine-readable, used by ps/top)
+├── status        ← process status (human-readable)
+├── limits        ← resource limits (ulimit values)
+├── io            ← I/O stats (bytes read/written)
+├── wchan         ← kernel function process is sleeping in
+├── stack         ← kernel stack trace
+└── oom_score     ← OOM killer score (higher = killed first)
+```
+
+---
+
+## 🔷 `cmdline` — Full command
+
+```bash
+# /proc/PID/cmdline: full command, args separated by null bytes (\0)
+cat /proc/12345/cmdline
+# python3/usr/local/bin/app.py--port8080--host0.0.0.0   ← looks garbled
+
+# Readable version:
+cat /proc/12345/cmdline | tr '\0' ' '
+# python3 /usr/local/bin/app.py --port 8080 --host 0.0.0.0
+
+# Or use xargs:
+xargs -0 < /proc/12345/cmdline
+
+# Why use /proc instead of ps?
+# ps truncates at terminal width; /proc never truncates
+# Useful for: finding exact args of long-running processes
+
+# comm — short name (15 chars, what ps shows in COMM column)
+cat /proc/12345/comm
+# python3
+
+# exe — the actual binary
+ls -la /proc/12345/exe
+# /proc/12345/exe -> /usr/bin/python3
+```
+
+---
+
+## 🔷 `status` — Human-readable process info
+
+```bash
+cat /proc/12345/status
+# Name:    python3
+# Umask:   0022
+# State:   S (sleeping)
+# Tgid:    12345        ← Thread Group ID (= PID for single-threaded)
+# Ngid:    0
+# Pid:     12345
+# PPid:    9876         ← Parent PID
+# TracerPid: 0          ← 0 = not being traced; non-zero = debugger attached
+# Uid:     1000  1000  1000  1000    ← real, effective, saved, filesystem UIDs
+# Gid:     1000  1000  1000  1000
+# FDSize:  64           ← current size of fd table
+# Groups:  1000 4 24 27 ...
+# VmPeak:  524288 kB    ← peak virtual memory
+# VmSize:  512344 kB    ← current virtual memory
+# VmRSS:   131072 kB    ← physical RAM (RSS)
+# VmData:   98765 kB    ← data segment size
+# VmStk:     8192 kB    ← stack size
+# VmExe:      512 kB    ← text (code) size
+# VmLib:    65536 kB    ← shared library size
+# Threads: 8            ← number of threads
+# SigBlk:  0000000000000000   ← blocked signals bitmask
+# SigIgn:  0000000000001000   ← ignored signals bitmask
+# SigCgt:  0000000180014a03   ← caught signals bitmask
+
+# Quick checks:
+grep VmRSS /proc/12345/status   # RSS memory
+grep Threads /proc/12345/status # Thread count
+grep PPid /proc/12345/status    # Parent PID
+grep TracerPid /proc/12345/status  # Is it being debugged?
+grep State /proc/12345/status   # Current state
+```
+
+---
+
+## 🔷 `fd/` — Open file descriptors
+
+```bash
+# List all open file descriptors
+ls -la /proc/12345/fd/
+# lrwxrwxrwx  0 -> /dev/pts/0        (stdin)
+# lrwxrwxrwx  1 -> /dev/pts/0        (stdout)
+# lrwxrwxrwx  2 -> /dev/pts/0        (stderr)
+# lrwxrwxrwx  3 -> /var/log/app.log
+# lrwxrwxrwx  4 -> socket:[98765]    (TCP connection)
+# lrwxrwxrwx  5 -> /tmp/myapp.pid
+# lrwxrwxrwx  6 -> /dev/null
+# lrwxrwxrwx  7 -> anon_inode:[eventfd]
+
+# Count open FDs (fd leak detection):
+ls /proc/12345/fd | wc -l
+# Compare to ulimit:
+grep "open files" /proc/12345/limits
+
+# Socket FD details:
+# socket:[98765] → look up 98765 in /proc/net/tcp (inode number)
+cat /proc/net/tcp | grep $(printf '%x\n' 98765)
+
+# The deleted file trick:
+# If a file is deleted but a process still has it open:
+ls -la /proc/12345/fd/ | grep deleted
+# lrwxrwxrwx  3 -> /var/log/old.log (deleted)
+# The file space won't be freed until the FD is closed!
+# This is the classic "disk full but no big files found" scenario
+lsof +L1    # Find all open-but-deleted files (lsof approach)
+
+# Production: watch for FD count growing (leak indicator)
+watch -n 5 'ls /proc/12345/fd | wc -l'
+```
+
+---
+
+## 🔷 `maps` — Memory layout
+
+```bash
+cat /proc/12345/maps
+# 55a1b3200000-55a1b3400000 r-xp  00000000  fd:01  123456  /usr/bin/python3
+# ──────────────────────────────────────────────────────────────────────────
+# start-end addr  perms     offset   dev     inode  pathname
 #
-# Format: start-end perms offset dev inode pathname
-# Permissions: r=read, w=write, x=execute, p=private(COW), s=shared
-```
+# Permissions: r=read, w=write, x=execute, p=private, s=shared
+#
+# 55a1b3600000-55a1b3800000 r--p  00000000  fd:01  123456  /usr/bin/python3
+# 55a1b3800000-55a1b3900000 rw-p  00000000  fd:01  123456  /usr/bin/python3
+# 7f8a1c000000-7f8a1c200000 rw-p  00000000  00:00       0  [heap]
+# 7f8b34000000-7f8b34200000 r-xp  00000000  fd:01  654321  /lib/x86_64/libc.so.6
+# 7ffdf3a00000-7ffdf3c00000 rw-p  00000000  00:00       0  [stack]
+# 7ffdf3e00000-7ffdf3e01000 r-xp  00000000  00:00       0  [vdso]
 
-### `/proc/PID/limits` — Resource Limits
+# Sections you'll see:
+# [heap]    = heap memory (malloc'd data)
+# [stack]   = thread stack
+# [vdso]    = virtual dynamic shared object (fast syscalls)
+# [vsyscall]= legacy fast syscall mapping
+# anon      = anonymous mappings (mmap'd without file)
 
-```bash
-cat /proc/$PID/limits
-# Limit               Soft Limit  Hard Limit  Units
-# Max open files      65536       65536       files
-# Max processes       31429       31429       processes
-# Max locked memory   65536       65536       bytes
-# Max stack size      8388608     unlimited   bytes
-# Max cpu time        unlimited   unlimited   seconds
-
-# These are the ulimit values for this process
-# If a process hits "Max open files" → Too many open files error
-# Fix: increase with ulimit -n or /etc/security/limits.conf
-```
-
-### `/proc/PID/net/tcp` — Network Connections
-
-```bash
-cat /proc/$PID/net/tcp
-# Gives raw hex socket state data
-# Easier to use: ss -tp | grep $PID
-# or: lsof -p $PID -i
+# Detect library injection / unexpected mappings:
+grep -v '\.so\|heap\|stack\|vdso\|vsyscall' /proc/12345/maps | grep -v python
 ```
 
 ---
 
-## 🎤 Short Interview Answer
+## 🔷 `limits` — Resource limits
 
-> "/proc is a virtual filesystem where the kernel exposes process information as files. /proc/PID/ contains everything about a running process. I use fd/ to check for file descriptor leaks and find deleted-but-open files. I check status for memory usage (VmRSS for actual RAM), limits to diagnose 'too many open files' errors, and maps to understand a process's memory layout. In production, the most common use is checking fd/ when an application runs out of file descriptors — you can see exactly which files it has open and identify the leak."
+```bash
+cat /proc/12345/limits
+# Limit                     Soft Limit  Hard Limit  Units
+# Max cpu time              unlimited   unlimited   seconds
+# Max file size             unlimited   unlimited   bytes
+# Max data size             unlimited   unlimited   bytes
+# Max stack size            8388608     unlimited   bytes
+# Max core file size        0           unlimited   bytes
+# Max resident set          unlimited   unlimited   bytes
+# Max processes             63484       63484       processes
+# Max open files            1024        65536       files
+# Max locked memory         65536       65536       bytes
+# Max address space         unlimited   unlimited   bytes
+# Max file locks            unlimited   unlimited   locks
+# Max pending signals       63484       63484       signals
+# Max msgqueue size         819200      819200      bytes
+# Max nice priority         0           0
+# Max realtime priority     0           0
+
+# KEY limits to monitor:
+# Max open files = 1024 soft  ← classic bottleneck for high-connection apps
+# Max processes             ← limits threads too (each thread = a task)
+
+# Current FD usage vs limit:
+FD_USED=$(ls /proc/12345/fd | wc -l)
+FD_LIMIT=$(awk '/Max open files/ {print $4}' /proc/12345/limits)
+echo "FDs: $FD_USED / $FD_LIMIT"
+
+# Change limits for running process (requires root or prlimit):
+prlimit --nofile=65536:65536 --pid 12345    # Raise FD limit live
+prlimit --pid 12345                          # Show current limits
+```
 
 ---
 
-## 🏭 Real Production Example
-
-**Scenario: App throws "Too many open files" error**
+## 🔷 Other useful /proc/PID files
 
 ```bash
-# Find the PID
-PID=$(pgrep java)
+# wchan — what kernel function is the process sleeping in
+cat /proc/12345/wchan
+# wait_woken          ← waiting for network data (normal)
+# nfs_file_read       ← stuck in NFS read (problem if long)
+# futex_wait_queue_me ← waiting on a mutex/lock
 
-# Check current FD count vs limit
-echo "Open FDs: $(ls /proc/$PID/fd | wc -l)"
-echo "Limit: $(cat /proc/$PID/limits | grep 'open files' | awk '{print $4}')"
+# io — I/O statistics
+cat /proc/12345/io
+# rchar: 1234567    ← bytes read (including cached)
+# wchar: 987654     ← bytes written (including cached)
+# syscr: 1234       ← read() syscall count
+# syscw: 567        ← write() syscall count
+# read_bytes: 65536    ← actual disk bytes read
+# write_bytes: 32768   ← actual disk bytes written
 
-# See what's open
-ls -la /proc/$PID/fd/ | awk '{print $NF}' | sort | uniq -c | sort -rn | head -20
-# 847 socket:[...]     ← Too many sockets! Connection leak
-#  12 /var/log/app.log
-#   3 /dev/pts/0
+# oom_score — OOM killer score (0-1000, higher = killed first)
+cat /proc/12345/oom_score
+# 234
 
-# Many sockets → connection pool leak or not closing connections
-# Investigate: ss -tp | grep $PID
+# oom_score_adj — manually adjust OOM score (-1000 to +1000)
+echo -1000 > /proc/12345/oom_score_adj   # Never kill this process (root only)
+echo  1000 > /proc/12345/oom_score_adj   # Kill this first when OOM
+
+# environ — environment variables
+cat /proc/12345/environ | tr '\0' '\n'
+# PATH=/usr/local/bin:/usr/bin:/bin
+# HOME=/home/alice
+# ...
+
+# cwd and exe
+ls -la /proc/12345/cwd    # What directory the process is in
+ls -la /proc/12345/exe    # What binary is running
 ```
+
+---
+
+## 🔷 Short crisp interview answer
+
+> "`/proc/PID` is a virtual filesystem the kernel generates on-the-fly — there's nothing on disk. The most useful files: `cmdline` gives the full untruncated command (args null-separated, use `tr '\0' ' '`); `fd/` lists all open file descriptors as symlinks — counting them detects FD leaks; `status` gives readable state, RSS, PPID, and signal masks; `limits` shows ulimit values including max open files; `maps` shows the virtual memory layout; `wchan` shows what kernel function the process is sleeping in, which is invaluable for diagnosing D-state hangs. I use `ls /proc/PID/fd | wc -l` to detect FD leaks and `grep VmRSS /proc/PID/status` to check actual memory use."
 
 ---
 
 ## ⚠️ Gotchas
 
-1. **Reading `/proc/PID/mem`** directly requires `ptrace` permission — you can't just `cat` it.
-2. **`/proc/PID/` disappears** when the process dies — race condition if you're scripting against it.
-3. **`/proc/PID/fd/` symlinks point to deleted files** if the file was deleted while open — check for `(deleted)` suffix.
-4. **Limits are per-process at fork time** — changing `/etc/security/limits.conf` only affects new login sessions, not running processes.
-
----
----
-
-# 🔴 2.8 — Linux Scheduler: CFS, Time Slices, cgroups CPU Limits
-
-## 🧠 Deeply Tied to Kernel Internals
-
-## 📖 What It Is (Simple Terms)
-
-The **Completely Fair Scheduler (CFS)** is the Linux kernel's default CPU scheduler. Its goal: give every process a "fair" share of CPU time proportional to its priority weight.
-
-Instead of fixed time slices, CFS tracks **virtual runtime (vruntime)** for each process — the process with the smallest vruntime (got the least CPU time recently) runs next.
-
----
-
-## ⚙️ How CFS Works Internally
-
-```
-CFS uses a Red-Black Tree (self-balancing BST):
-
-        [vruntime=100, bash]
-              /          \
-[vruntime=50, nginx]   [vruntime=200, python]
-        /
-[vruntime=10, java]  ← leftmost = next to run
-
-Rule: The leftmost node (minimum vruntime) ALWAYS runs next.
-When a process runs, its vruntime increases.
-When it's preempted, it's re-inserted at its new vruntime.
-```
-
-**Key parameters:**
 ```bash
-# Scheduling parameters
-cat /proc/sys/kernel/sched_latency_ns    # Target scheduling period (6ms default)
-cat /proc/sys/kernel/sched_min_granularity_ns  # Minimum time slice per process
+# GOTCHA 1: /proc files must be read atomically — they're not real files
+# Don't: cat /proc/12345/status | process_slowly
+# The content changes between reads — use a single cat/read
+
+# GOTCHA 2: Reading /proc requires appropriate permissions
+# /proc/12345/maps, /proc/12345/mem → require ptrace permissions
+# Root can read all; regular users can only read their own processes' details
+
+# GOTCHA 3: FD count in /proc/PID/fd includes the fd/ directory read itself
+ls /proc/12345/fd | wc -l   # May count 1 extra (the ls process's own fd)
+# More accurate: lsof -p 12345 | wc -l
+
+# GOTCHA 4: deleted files
+ls -la /proc/12345/fd/ | grep "(deleted)"
+# Space won't be freed until FD is closed
+# Classic symptom: df shows full, du shows plenty of space
+# Fix: find the process, close the FD (or restart the process)
+
+# GOTCHA 5: /proc/PID disappears when process exits
+# If process exits while you're reading /proc/PID: ENOENT errors
+# Script defensively: ls /proc/PID/status 2>/dev/null || echo "gone"
+```
+
+---
+---
+
+# 2.8 Linux Scheduler — CFS, Time Slices, cgroups CPU Limits
+
+## 🔷 What the scheduler is
+
+The Linux CPU scheduler decides **which runnable process gets the CPU next and for how long**. The Completely Fair Scheduler (CFS) has been the default since kernel 2.6.23. Understanding it explains why processes compete for CPU, how containers limit CPU, and why "nice" values work the way they do.
+
+---
+
+## 🔷 CFS — Completely Fair Scheduler
+
+```
+Core idea: every process should get a "fair" share of CPU time
+
+CFS tracks "virtual runtime" (vruntime) per process:
+  vruntime = actual CPU time weighted by priority
+  Lower priority → vruntime increases FASTER (penalty)
+  Higher priority → vruntime increases SLOWER (bonus)
+
+The scheduler ALWAYS runs the process with LOWEST vruntime next.
+
+  Process A (nice  0): vruntime = 100ms  ← RUN THIS ONE
+  Process B (nice  0): vruntime = 105ms
+  Process C (nice 10): vruntime =  80ms  ← but effective vruntime is higher
+
+Red-Black Tree (sorted by vruntime):
+  ┌────┐
+  │ A  │ ← leftmost = lowest vruntime = next to run
+  └──┬─┘
+     ├── B
+     └── C
+         └── D
+
+After running A, its vruntime increases → it moves right in the tree
+The new leftmost process becomes the next to run
+```
+
+---
+
+## 🔷 Time slices and scheduling
+
+```bash
+# CFS doesn't use fixed time slices — it uses a "target latency"
+# Target latency: every runnable process should get at least one run
+# within this period (default: 6ms per process or 24ms total)
+
+# With 4 processes at equal priority:
+# Each gets 24ms / 4 = 6ms per period
+# This gives 166 context switches per second per CPU
+
+# The minimum granularity prevents too-small slices:
+cat /proc/sys/kernel/sched_min_granularity_ns
+# 1000000 (1ms) — no slice smaller than this
+
+cat /proc/sys/kernel/sched_latency_ns
+# 6000000 (6ms) — target scheduling period per process
+
 cat /proc/sys/kernel/sched_wakeup_granularity_ns
+# 1000000 (1ms) — wakeup preemption granularity
+
+# View per-process scheduling stats:
+cat /proc/12345/schedstat
+# 1234567890  9876543  1234
+# CPU time (ns)  wait time (ns)  timeslices run
+
+# More detailed scheduler stats:
+cat /proc/12345/sched
+# se.exec_start              :    1234567890.123456
+# se.vruntime                :          123.456789
+# se.sum_exec_runtime        :         1234.567890  ← total CPU time in ms
+# nr_switches                :               12345  ← context switch count
+# nr_voluntary_switches      :               10000  ← yielded voluntarily
+# nr_involuntary_switches    :                2345  ← preempted by scheduler
 ```
 
 ---
 
-## 🔑 cgroups CPU Limits (Container Context)
+## 🔷 cgroups — CPU limiting for containers
 
 ```bash
-# cgroups v1 — CPU limits
-cat /sys/fs/cgroup/cpu/docker/$CONTAINER_ID/cpu.cfs_quota_us   # quota in microseconds
-cat /sys/fs/cgroup/cpu/docker/$CONTAINER_ID/cpu.cfs_period_us  # period (100ms = 100000)
+# cgroups (Control Groups) = kernel feature to limit, account, isolate
+# resources (CPU, memory, I/O, network) for groups of processes
 
-# If quota=50000, period=100000 → 50% CPU limit (0.5 CPUs)
-# If quota=200000, period=100000 → 200% = 2.0 CPUs
+# cgroups v1 CPU limits (older, still common):
+# Located at: /sys/fs/cgroup/cpu/
 
-# cgroups v2
-cat /sys/fs/cgroup/system.slice/cpu.max
-# 50000 100000  → max 50000us per 100000us period = 50% CPU
+# Set CPU quota for a process:
+# cpu.cfs_period_us = scheduling period (default 100ms = 100000 µs)
+# cpu.cfs_quota_us  = how much CPU time the group gets per period
+#   quota = -1 → no limit
+#   quota = 50000 with period 100000 → 50% of ONE CPU
+#   quota = 200000 with period 100000 → 2 full CPUs (200%)
 
-# Docker CPU limits
-docker run --cpus=0.5 nginx     # 50% of one CPU
-docker run --cpu-shares=512 nginx  # Relative weight (1024 = default)
+# Create a cgroup and limit CPU:
+sudo mkdir /sys/fs/cgroup/cpu/myapp
+echo 100000 > /sys/fs/cgroup/cpu/myapp/cpu.cfs_period_us  # 100ms period
+echo 50000  > /sys/fs/cgroup/cpu/myapp/cpu.cfs_quota_us   # 50% CPU limit
+echo 12345  > /sys/fs/cgroup/cpu/myapp/tasks               # Add PID to group
 
-# Kubernetes CPU limits/requests
-# requests: guaranteed minimum, used for scheduling decisions
-# limits: hard cap via cgroups CFS quota
-```
+# cgroups v2 (modern, unified hierarchy):
+# Located at: /sys/fs/cgroup/
+# All resource types in one hierarchy
 
-### Observing CPU Throttling
+# Check what cgroup a process is in:
+cat /proc/12345/cgroup
+# 12:cpu,cpuacct:/docker/abc123def456
+# 11:memory:/docker/abc123def456
+# (shows cgroup path per subsystem)
 
-```bash
-# Check if a container is being CPU throttled
-cat /sys/fs/cgroup/cpu/docker/$CID/cpu.stat
-# nr_periods 1000        ← total CFS periods evaluated
-# nr_throttled 342       ← periods where quota was exhausted
-# throttled_time 1234567 ← nanoseconds spent throttled
+# ── Docker / Kubernetes CPU limits via cgroups ─────────────────────────
+# Docker: --cpus=0.5 → sets quota to 50000µs per 100000µs period
+docker run --cpus=0.5 nginx
+# This creates: cpu.cfs_quota_us = 50000
 
-# High throttled_time → container is hitting its CPU limit
-# Fix: increase CPU limit or optimize the application
+# Kubernetes:
+# resources:
+#   limits:
+#     cpu: "500m"   → 500 millicores = 0.5 CPU
+#                   → cfs_quota_us = 50000
+
+# Check CPU throttling (containers being throttled):
+cat /sys/fs/cgroup/cpu/docker/abc123/cpu.stat
+# nr_periods       100    ← total scheduling periods
+# nr_throttled      15    ← periods where quota was exhausted
+# throttled_time 1500000  ← total nanoseconds throttled
+
+# High nr_throttled/nr_periods ratio → container is CPU constrained
+# Symptom: application is slow, CPU seems available, but container is throttled
+
+# ── CPU shares (relative weight, cgroups v1) ─────────────────────────
+cat /sys/fs/cgroup/cpu/myapp/cpu.shares
+# 1024  ← default; higher = more CPU weight (like nice but for cgroups)
+echo 2048 > /sys/fs/cgroup/cpu/myapp/cpu.shares  # 2x weight vs default
 ```
 
 ---
 
-## 🎤 Short Interview Answer
+## 🔷 NUMA awareness and CPU pinning
 
-> "CFS — the Completely Fair Scheduler — tracks virtual runtime for each process and always runs the one with the smallest vruntime next, stored in a red-black tree for O(log n) operations. This ensures fair CPU time distribution weighted by priority. In container environments, cgroups layer on top of CFS with CFS quota (cpu.cfs_quota_us / cpu.cfs_period_us) to enforce hard CPU limits — a container limited to 0.5 CPUs can only run 50ms per 100ms period. When troubleshooting container performance, I check cpu.stat's nr_throttled to see if the app is hitting CPU limits, which causes latency spikes even if CPU looks underutilized from the host perspective."
+```bash
+# NUMA (Non-Uniform Memory Access):
+# Multi-socket servers have multiple CPU nodes
+# Memory access is faster for local node than remote node
+
+# Check NUMA topology:
+numactl --hardware
+
+# Pin process to specific CPU(s):
+taskset -c 0,1 ./my_program           # Run on CPUs 0 and 1 only
+taskset -c 0-3 ./my_program           # Run on CPUs 0 through 3
+
+# Set affinity of running process:
+taskset -cp 0,1 12345                 # Pin PID 12345 to CPUs 0,1
+
+# Check current CPU affinity:
+taskset -p 12345
+
+# NUMA-aware execution:
+numactl --cpunodebind=0 --membind=0 ./my_program  # All on NUMA node 0
+
+# View scheduling history (which CPUs a process used):
+cat /proc/12345/status | grep Cpus_allowed
+# Cpus_allowed:   ff   ← bitmask; ff = all 8 CPUs allowed
+```
+
+---
+
+## 🔷 Short crisp interview answer
+
+> "CFS (Completely Fair Scheduler) tracks 'virtual runtime' per process using a red-black tree. The process with the lowest vruntime runs next. Lower nice values slow vruntime accumulation, giving more CPU. Higher nice values accelerate it. There are no fixed time slices — CFS uses a target latency period divided equally among runnable processes. Container CPU limits work via cgroups `cpu.cfs_quota_us` and `cpu.cfs_period_us` — Docker `--cpus=0.5` sets the quota to 50% of one CPU. High `nr_throttled` in `cpu.stat` means the container is being CPU-throttled by cgroups, which explains slow performance despite available CPU on the host."
 
 ---
 
 ## ⚠️ Gotchas
 
-1. **CPU throttling causes latency, not just throughput loss** — when a container is throttled mid-request, that request takes longer even though CPU usage looks fine from outside.
+```bash
+# GOTCHA 1: cgroup CPU throttling is invisible from inside the container
+# Container's `top` shows low CPU usage but app is slow
+# Reason: cgroups throttle it without the container seeing "busy" CPU
+# Check: cat /sys/fs/cgroup/cpu/.../cpu.stat for nr_throttled
 
-2. **CPU requests ≠ CPU limits in Kubernetes** — requests affect scheduling placement; limits enforce cgroup quotas. A container can burst above requests (up to limits) on a busy node.
+# GOTCHA 2: CPU "limit" ≠ CPU "request" in Kubernetes
+# request = guaranteed minimum (sets cpu.shares)
+# limit   = hard maximum (sets cfs_quota)
+# A pod can burst above request up to limit IF CPU is available
 
-3. **Noisy neighbor problem** — on shared hosts, if one cgroup exhausts CPU, others with lower shares suffer. cgroups weights help but don't eliminate contention.
+# GOTCHA 3: Context switch overhead
+# High nr_involuntary_switches → process being preempted a lot
+# Could indicate it's getting CPU-starved (too many competing processes)
+# cat /proc/12345/sched to see switch counts
+
+# GOTCHA 4: nice values and cgroup CPU shares interact
+# A process with nice -20 inside a cgroup with low cpu.shares
+# may still get less CPU than a nice 0 process in a high-shares cgroup
+# cgroup limits are enforced BEFORE nice values matter
+
+# GOTCHA 5: CFS target latency scales with process count
+# 2 processes: each gets 3ms slices (6ms total / 2)
+# 100 processes: each gets 0.24ms slices → LOTS of context switches
+# High process count = high scheduling overhead even at low CPU%
+```
 
 ---
 ---
 
-# 🔴 2.9 — Zombie & Orphan Processes
+# 2.9 Zombie & Orphan Processes — How They Form, How to Clean Them
 
-## 📖 Zombie Process
+## 🔷 Zombies and orphans — the two scenarios
 
 ```
-Parent (PID 100) ──fork()──► Child (PID 200)
-                                   │
-                               child does work
-                                   │
-                               child exits()
-                                   │
-                    Kernel: "I'll keep PID 200's entry
-                             in the process table until
-                             parent calls wait()"
-                                   │
-                    Parent never calls wait()
-                                   │
-                              PID 200 = ZOMBIE (Z state)
-                              - No memory
-                              - No CPU  
-                              - Just a process table entry
-                              - Shows as <defunct> in ps
+Scenario A: Parent exits BEFORE child → ORPHAN
+──────────────────────────────────────────────
+  Parent: dies (crashes or exits)
+       │
+       └── Child: still running
+                  → kernel re-parents to PID 1 (systemd/init)
+                  → child continues running normally
+                  → systemd will call wait() when child exits
+                  → no zombie created (systemd handles it)
+
+Scenario B: Child exits BEFORE parent calls wait() → ZOMBIE
+──────────────────────────────────────────────────────────
+  Child: exits (calls exit())
+       │
+       └── kernel marks as zombie (Z state)
+           kernel KEEPS the PID entry in process table
+           (to preserve exit code for parent)
+           kernel sends SIGCHLD to parent
+           
+  Parent: SHOULD call wait() to reap the child
+         if parent ignores SIGCHLD or never calls wait() →
+         → zombie stays in process table FOREVER (until parent exits)
 ```
+
+---
+
+## 🔷 Zombie processes in detail
 
 ```bash
-# Find zombies
-ps aux | awk '$8=="Z" {print}'
-# USER  PID  STAT  COMMAND
-# app   8234  Z    [python] <defunct>
-
-# Find the zombie's parent
-ps -p $(ps -o ppid= -p 8234) -o pid,cmd
-
-# Options to clear:
-# 1. Fix the parent application to call wait()
-# 2. Send SIGCHLD to parent (might trigger wait())
-kill -CHLD $PPID
-# 3. Kill the parent — zombies get re-parented to init, which reaps them
-kill -TERM $PPID
-```
-
-## 📖 Orphan Process
-
-```
-Parent dies ──────► Child is alive but parentless
-                         │
-                    Kernel re-parents to PID 1 (systemd/init)
-                         │
-                    init/systemd becomes the new parent
-                    and will call wait() when child eventually exits
-```
-
-Orphans are **not problematic** — they continue running, just with PID 1 as parent. This is actually how daemons work: they deliberately orphan themselves (double-fork technique) to run independently.
-
----
-
-## 🎤 Short Interview Answer
-
-> "A zombie process has exited but its parent hasn't called wait() to collect its exit status, leaving a defunct entry in the process table. Zombies hold no memory or CPU — they're harmless in small numbers but can exhaust PID space if there are thousands. You can't kill a zombie directly since it's already dead; you fix the parent app or kill the parent so init re-parents and reaps them. An orphan is the opposite — a child whose parent died. The kernel automatically re-parents orphans to PID 1 (systemd), which will eventually reap them. Orphans are normal and by design in daemon creation patterns."
-
----
-
-## 🏭 Production Example
-
-```bash
-#!/bin/bash
-# Proper parent that avoids creating zombies
-
-# BAD: Fork child and never wait
-child_pid=$!
-# ... never wait for it ... → zombie
-
-# GOOD: Reap children properly
-child_pid=$!
-wait $child_pid   # synchronous wait
-echo "Child exited: $?"
-
-# GOOD: Async reaping with trap
-trap 'wait' SIGCHLD  # reap any child that exits
-
-# GOOD: Double-fork daemon pattern (avoids zombies entirely)
-# Parent forks → child forks grandchild → child exits
-# Grandchild is orphaned → adopted by init → runs as daemon
-```
-
----
----
-
-# 🔴 2.10 — `strace` & `ltrace`: Syscall Tracing
-
-## 🔥 High-Frequency Advanced Topic
-
-## 📖 What It Is (Simple Terms)
-
-- **`strace`** — traces **system calls** (kernel API calls) made by a process
-- **`ltrace`** — traces **library calls** (libc and other shared library function calls)
-
-When a program misbehaves and you have no source code and no logs, strace is your X-ray machine — it shows exactly what the program is asking the kernel to do.
-
----
-
-## ⚙️ How It Works Internally
-
-```
-User Process                  Kernel
-────────────                  ──────
-open("/etc/config", ...)  ──► sys_open()
-                               │
-                          strace intercepts here
-                          using ptrace() syscall
-                               │
-                          Returns to process with fd
-```
-
-`strace` uses `ptrace()` to intercept each syscall entry/exit and print it. This makes the process run ~100x slower — use with caution in production.
-
----
-
-## 🔑 Commands
-
-```bash
-# Trace a new command
-strace ls /tmp
-
-# Attach to running process (non-destructive)
-strace -p 1234
-
-# Trace and follow child processes
-strace -f python app.py
-
-# Filter by syscall type
-strace -e trace=open,read,write ls
-strace -e trace=network python app.py    # network calls only
-strace -e trace=file python app.py       # file-related calls
-
-# Summarize syscall counts and time (best for profiling)
-strace -c python app.py
-# % time     seconds  usecs/call     calls    errors syscall
-# ─────── ───────── ─────────── ───────── ───────── ──────────
-#  45.23    0.123456         10     12345         0 read
-#  30.11    0.082000          5     16400         0 write
-#  10.05    0.027350        273       100        10 open
-
-# Timestamp each syscall
-strace -t python app.py    # wall clock time
-strace -T python app.py    # time spent in each syscall
-
-# Write to file instead of stderr
-strace -o /tmp/trace.txt python app.py
-
-# Full string output (default truncates at 32 chars)
-strace -s 1024 python app.py
-
-# Production-safe: summary only, attach to existing
-strace -p $PID -c -f    # get stats without flooding output
-```
-
-### Reading `strace` Output
-
-```
-open("/etc/myapp/config.yaml", O_RDONLY) = 3
-read(3, "server:\n  port: 8080\n", 4096) = 21
-close(3)                                = 0
-connect(4, {sa_family=AF_INET, sin_port=htons(5432), sin_addr="10.0.1.50"}, 16) = -1 ECONNREFUSED
-```
-
-Reading this:
-1. Opened config file → got fd 3 ✅
-2. Read 21 bytes from it ✅
-3. Closed fd 3 ✅
-4. Tried to connect to 10.0.1.50:5432 (PostgreSQL) → **ECONNREFUSED** ❌
-
-This tells you the app can't reach the database — without any app-level logs!
-
----
-
-## 🎤 Short Interview Answer
-
-> "strace intercepts system calls using ptrace() — it shows you every interaction between a process and the kernel: file opens, network connections, memory allocations, process forks. I use it when an application fails silently or has no useful logs. The `-c` flag gives a summary of which syscalls are consuming time — useful for performance profiling. The `-p PID` flag attaches to a running process non-destructively. A classic use case: app says 'permission denied' but you don't know which file — strace shows the exact open() call and the path that's failing."
-
----
-
-## 🏭 Real Production Example
-
-**App silently fails to start, no logs anywhere:**
-
-```bash
-strace -e trace=file -o /tmp/start_trace.txt ./myapp
-
-grep "ENOENT\|EACCES\|EPERM" /tmp/start_trace.txt
-# open("/etc/ssl/certs/ca-bundle.crt", O_RDONLY) = -1 ENOENT (No such file or directory)
-# open("/etc/myapp/config.yaml", O_RDONLY) = -1 EACCES (Permission denied)
-
-# Found it: missing SSL cert bundle AND config permission issue
-# Fix: install ca-certificates, fix config file permissions
-```
-
----
-
-## ⚠️ Gotchas
-
-1. **strace significantly slows down the process** — 2-100x overhead from ptrace. Don't leave it attached to production processes.
-2. **Use `-c` for production profiling** — it only shows a summary at the end, minimizing interference.
-3. **Multithreaded processes** — use `-f` to follow threads. Output can be interleaved; use `-ff -o trace_prefix` to write each thread to a separate file.
-4. **strace requires ptrace permission** — root, or the process must be owned by the calling user. In containers, ptrace may be disabled by seccomp policies.
-
----
----
-
-# 🔴 2.11 — `lsof`: Open Files, Socket States, FD Leak Debugging
-
-## 🔥 High-Frequency Production Tool
-
-## 📖 What It Is (Simple Terms)
-
-`lsof` = **List Open Files**. In Linux, everything is a file — regular files, directories, sockets, pipes, devices. `lsof` shows you every open file for every process (or a filtered subset).
-
-It's the go-to tool for: "what process has this file open?", "why can't I unmount this filesystem?", "how many sockets does this app have?", "is there a file descriptor leak?"
-
----
-
-## 🔑 Commands — The Cheat Sheet
-
-```bash
-# List all open files (very verbose — usually filter!)
-lsof | head -20
-
-# Files opened by a specific process
-lsof -p 1234
-
-# Files opened by a specific user
-lsof -u www-data
-
-# Find which process has a specific file open
-lsof /var/log/nginx/access.log
-
-# Find which process is listening on a port
-lsof -i :80
-lsof -i :443
-lsof -i TCP:8080
-
-# All network connections for a process
-lsof -i -p 1234
-
-# All TCP connections in LISTEN state
-lsof -i TCP -s TCP:LISTEN
-
-# All ESTABLISHED connections
-lsof -i TCP -s TCP:ESTABLISHED
-
-# Find what's preventing unmount of /mnt/data
-lsof /mnt/data
-
-# Find deleted files still held open (disk space leak!)
-lsof | grep deleted
-
-# Count open file descriptors per process
-lsof -n | awk '{print $2}' | sort | uniq -c | sort -rn | head -10
-# 1234  8234   ← process 8234 has 1234 open FDs!
-
-# Files opened by processes matching name pattern  
-lsof -c nginx
-lsof -c python
-
-# Combined filters (AND by default, OR with -a flag)
-lsof -u www-data -c nginx    # nginx processes owned by www-data
-
-# Show only IPv4
-lsof -i 4
-
-# Show numeric addresses (faster, no DNS lookup)
-lsof -n -i TCP
-```
-
-### Reading `lsof` Output
-
-```
-COMMAND  PID     USER   FD   TYPE DEVICE SIZE/OFF   NODE NAME
-nginx    1234    root    cwd  DIR  8,1    4096       2    /
-nginx    1234    root    txt  REG  8,1    1234567    123  /usr/sbin/nginx  (exec)
-nginx    1234    root    mem  REG  8,1    2345678    456  /lib/x86_64.../libc.so.6
-nginx    1234    root    0u   CHR  1,3    0t0        789  /dev/null
-nginx    1234    root    1w   REG  8,1    102400     890  /var/log/nginx/access.log
-nginx    1234    root    2w   REG  8,1    4096       891  /var/log/nginx/error.log
-nginx    1234    root    5u   IPv4 12345  0t0        TCP  *:80 (LISTEN)
-nginx    1234    root    6u   IPv4 12346  0t0        TCP  10.0.0.1:80->10.0.0.2:54321 (ESTABLISHED)
-```
-
-| FD field | Meaning |
-|----------|---------|
-| `cwd` | Current working directory |
-| `txt` | Executable text |
-| `mem` | Memory-mapped file |
-| `0u` | fd 0, open for read+write (u=read/write, r=read, w=write) |
-| `1w` | fd 1, open for writing |
-| `5u` | fd 5, read/write (a socket) |
-
----
-
-## 🎤 Short Interview Answer
-
-> "lsof lists all open files for processes — and in Linux, everything is a file, including sockets, pipes, and devices. I use it constantly in production: `lsof -i :80` to find what's listening on a port, `lsof -p PID` to inspect a process's file descriptors, `lsof | grep deleted` to find disk space being held by deleted-but-open files, and `lsof /mnt/data` to figure out why a filesystem won't unmount. When an application hits 'too many open files', lsof shows me exactly what it has open so I can identify the leak pattern."
-
----
-
-## 🏭 Real Production Example
-
-**Scenario: Disk is 100% full but `du -sh /*` shows only 40% used**
-
-```bash
-# This classic discrepancy = deleted files still held open by processes
-lsof | grep deleted
+# How to find zombies:
+ps aux | grep Z
+ps -eo pid,ppid,stat,comm | awk '$3 ~ /Z/ {print}'
 
 # Output:
-# java  8234 app 47u REG 8,1 10737418240 /tmp/heap-dump-8234.hprof (deleted)
-# java  8234 app 48u REG 8,1  5368709120 /var/log/app/app.log (deleted)
+# PID   PPID  STAT COMM
+# 12345  9876   Z  [myapp] <defunct>
 
-# Java heap dump = 10GB, and a log file = 5GB, both deleted but still open by java!
-# The disk space is not freed until java closes those file descriptors.
+# What zombies consume:
+# - A PID entry in the process table
+# - An entry in the kernel's task_struct
+# - NO memory, NO CPU, NO open files
+# They hold ONLY a PID and exit status
 
-# Solutions:
-# 1. Restart the java process (closes all FDs, space is freed)
-# 2. If can't restart: truncate via /proc
-echo "" > /proc/8234/fd/47    # Truncate the deleted file in-place
-# → Disk space freed immediately without restarting!
+# Why zombies matter:
+# Linux has a maximum PID limit:
+cat /proc/sys/kernel/pid_max    # Default: 32768 (or 4194304 on 64-bit)
+# If zombie count reaches pid_max → new processes cannot be created!
+# "fork: Cannot allocate memory" error — even with plenty of RAM
 
-# 3. For log files: logrotate with postrotate HUP to reopen
+# Counting zombies:
+ps aux | awk '$8 == "Z" {count++} END {print count+0, "zombies"}'
+
+# Cleaning zombies (3 approaches):
+# 1. Signal SIGCHLD to parent (nudge it to call wait()):
+kill -CHLD <parent_pid>
+
+# 2. Kill the parent (zombies get re-parented to PID 1):
+kill -TERM <parent_pid>    # Parent exits → systemd reaps zombies
+
+# 3. Wait for natural cleanup (zombies only last as long as parent lives)
+# When parent exits, all its zombie children are immediately reaped
+
+# Verify zombies cleaned:
+ps aux | grep Z | wc -l
+
+# Debugging the root cause (the parent):
+# Find the parent of zombies:
+ps -eo pid,ppid,stat,comm | awk '$3 ~ /Z/ {print "zombie:", $1, "parent:", $2}'
+# Then inspect the parent:
+strace -e wait4,waitpid -p <parent_pid>   # Is it calling wait?
 ```
 
 ---
 
-## 💬 Common Interview Questions
+## 🔷 Orphan processes in detail
 
-**Q: How do you find which process is using port 8080?**
-> `lsof -i :8080` or `ss -tlnp | grep 8080`. lsof shows the full process details; ss is faster and doesn't require root for your own processes.
+```bash
+# How orphans form:
+# 1. nohup process (parent closes terminal)
+# 2. Parent crashes
+# 3. Daemon forks and parent intentionally exits
 
-**Q: Disk is 100% full but du shows only 60% — what's happening?**
-> Classic deleted-but-open files problem. A process opened a file, the file was deleted (from the directory), but the process still holds an open file descriptor. The kernel keeps the disk blocks allocated until all FDs are closed. `lsof | grep deleted` identifies the culprit. Fix: restart the process, or truncate via `/proc/PID/fd/N` if you can't restart.
+# Find orphans (processes whose parent is PID 1):
+ps -eo pid,ppid,comm | awk '$2 == 1 && $3 != "init" && $3 != "systemd" {print}'
+# Most of these are INTENTIONAL daemons — that's normal!
+# systemd manages them after adoption
 
-**Q: How do you check if a process is leaking file descriptors?**
-> Monitor `ls /proc/$PID/fd | wc -l` over time. If it grows monotonically without bound, there's a leak. Use `lsof -p $PID | sort` to see what types of FDs are accumulating — if it's sockets, you have a connection leak; if it's regular files, a file handle leak.
+# Daemon double-fork pattern (creates an intentional orphan):
+# This is how traditional Unix daemons detach from the terminal:
+#!/usr/bin/env bash
+# First fork: detach from shell
+if [[ $$ -ne 1 ]]; then
+    # Fork once
+    ./daemon.py &
+    CHILD=$!
+    # The child will fork again and exit
+    wait $CHILD
+    exit 0
+fi
+# The grandchild continues as a true daemon (PPID=1)
+
+# In Python (common pattern):
+# import os
+# if os.fork(): sys.exit()   # Parent exits
+# os.setsid()               # New session
+# if os.fork(): sys.exit()   # Intermediate exits
+# # Grandchild is now a true orphan daemon, PID 1 adopted it
+```
+
+---
+
+## 🔷 Production patterns to prevent zombies
+
+```bash
+# Pattern 1: Always wait() for children in scripts
+run_parallel_jobs() {
+    local pids=()
+    for task in "${TASKS[@]}"; do
+        ./process_task.sh "$task" &
+        pids+=($!)
+    done
+
+    # Reap all children:
+    local failed=0
+    for pid in "${pids[@]}"; do
+        wait "$pid" || (( failed++ ))
+    done
+    return $failed
+}
+
+# Pattern 2: Signal-safe child reaping (for long-running bash daemons)
+reap_children() {
+    local pid exit_code
+    while true; do
+        # wait -n = wait for any child (bash 4.3+)
+        wait -n pid 2>/dev/null || break
+        exit_code=$?
+        echo "Child $pid exited with $exit_code"
+    done
+}
+trap 'reap_children' CHLD   # Reap on every SIGCHLD
+
+# Pattern 3: In C/Python applications — the right pattern
+# Always: waitpid(-1, &status, WNOHANG) in SIGCHLD handler
+# Or: use signalfd/epoll to handle SIGCHLD in main event loop
+
+# Pattern 4: Using a subreaper (Linux 3.4+)
+# A process can declare itself a "subreaper" via prctl(PR_SET_CHILD_SUBREAPER)
+# Orphaned processes are re-parented to the subreaper instead of PID 1
+# Docker uses this — containerd is the subreaper for containers
+```
+
+---
+
+## 🔷 Short crisp interview answer
+
+> "Zombies form when a child process exits but the parent doesn't call `wait()` to collect its exit status. The kernel keeps the PID entry alive to preserve the exit code. Zombies hold no resources except a PID slot. The danger is PID exhaustion — if you hit `pid_max`, new processes can't be created even with plenty of RAM. To clean zombies: send SIGCHLD to the parent to trigger a wait() call; if that fails, kill the parent — its zombies get re-parented to PID 1 which immediately reaps them. Orphans form when a parent exits before its children — the kernel re-parents orphans to PID 1 automatically, and systemd handles reaping. Orphans keep running normally."
 
 ---
 
 ## ⚠️ Gotchas
 
-1. **`lsof` can be slow** — it parses `/proc` for every process. Use `-n` (no DNS) and `-P` (no port name lookup) to speed it up significantly.
-2. **`lsof` needs root** for complete output — without root, you only see your own processes.
-3. **`ss` is faster than `lsof` for network inspection** — `ss -tlnp` or `ss -tnp` are preferred for quick network checks.
-4. **Race condition** — between listing a process and it dying, `/proc/PID/` disappears. lsof handles this gracefully but may print warnings.
-5. **`lsof` output is text and inconsistent** — don't rely on column positions; use `lsof -F` for machine-parseable output when scripting.
-
----
----
-
-# 📋 Quick Reference Card — Process Management
-
-## Signal Quick Reference
 ```bash
-kill -15 PID  # SIGTERM: graceful stop
-kill -9 PID   # SIGKILL: force kill
-kill -1 PID   # SIGHUP: reload config
-kill -0 PID   # Check if PID exists (no signal sent)
-kill -- -PGID # Kill entire process group
-pkill -f pattern  # Kill by full command match
+# GOTCHA 1: You CANNOT kill a zombie directly
+kill -9 <zombie_pid>   # Ignored — process is already dead
+# Kill the PARENT instead
+
+# GOTCHA 2: "Cannot allocate memory" despite having free RAM
+# Symptom: fork() fails, ps aux shows thousands of Z-state processes
+# Root cause: PID exhaustion from zombie accumulation
+# Fix: cat /proc/sys/kernel/pid_max (increase temporarily if needed)
+echo 65536 > /proc/sys/kernel/pid_max   # Temporary increase (not persistent)
+
+# GOTCHA 3: Orphans are NOT always a problem
+# Most daemons (nginx, sshd, etc.) are intentional orphans (PPID=1)
+# Finding orphans: ps -eo pid,ppid | awk '$2==1' → mostly legitimate
+
+# GOTCHA 4: Zombie parents hiding as normal processes
+# Parent is running, not crashed — it just never calls wait()
+# Application bug: fork() without corresponding wait() in a loop
+# Each loop iteration creates one zombie → accumulates over time
+
+# GOTCHA 5: Docker containers and zombie processes
+# PID 1 inside a container (your app) must handle SIGCHLD and call wait()
+# If your app doesn't, zombies accumulate inside the container
+# Solution: use tini or dumb-init as PID 1 in Docker images
+# They handle SIGCHLD properly: CMD ["tini", "--", "myapp"]
 ```
 
-## Diagnostic One-Liners
+---
+---
+# 2.10 `strace` & `ltrace` — Syscall Tracing for Live Debugging
+
+## 🔷 What they are
+
+`strace` intercepts and records **system calls** — the boundary between user code and the kernel. `ltrace` intercepts **library calls** (libc, etc.). Together they let you see exactly what a process is doing at the lowest level, without modifying it or having source code.
+
+---
+
+## 🔷 How strace works internally
+
+```
+Normal execution:
+  User code → printf() → write() syscall → kernel → disk/terminal
+
+strace intercepts at the syscall boundary:
+  User code → printf() → write() syscall
+                                  │
+                          ┌───────▼────────┐
+                          │  strace (via   │ ← uses ptrace() syscall
+                          │  ptrace API)   │    to intercept
+                          │  logs the call │
+                          └───────┬────────┘
+                                  │
+                              kernel → disk/terminal
+
+⚠️ ptrace-based tracing has overhead: 2-10x slowdown
+   Use on production CAREFULLY and briefly
+   Alternative for production: eBPF tools (bpftrace, strace-like with perf)
+```
+
+---
+
+## 🔷 `strace` — System call tracing
+
 ```bash
-# Find top CPU consumers
-ps aux --sort=-%cpu | head -10
+# ── Trace a new process ───────────────────────────────────────────────
+strace ls
+# execve("/usr/bin/ls", ["ls"], 0x... /* env */) = 0
+# brk(NULL)                         = 0x55a1b4000000
+# openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
+# fstat(3, {st_mode=S_IFREG|0644, st_size=123456, ...}) = 0
+# mmap(NULL, 123456, PROT_READ, MAP_PRIVATE, 3, 0) = 0x7f8b34000000
+# close(3)                          = 0
+# ...
+# write(1, "file1.txt  file2.txt\n", 21) = 21
+# exit_group(0)                     = ?
 
-# Find all D-state (I/O blocked) processes
-ps -eo pid,stat,comm | awk '$2~/^D/{print}'
+# ── Attach to running process ─────────────────────────────────────────
+strace -p 12345         # Attach to PID 12345
 
-# Check load vs CPU cores
-echo "Load: $(uptime | awk -F'average:' '{print $2}') | CPUs: $(nproc)"
+# ── Key flags ─────────────────────────────────────────────────────────
+# -e trace=SYSCALL  — filter to specific syscalls
+# -e trace=file     — all file-related syscalls (open, read, write, stat...)
+# -e trace=network  — all network syscalls (socket, connect, send...)
+# -e trace=process  — process management (fork, exec, wait...)
+# -e trace=signal   — signal-related syscalls
+# -e trace=ipc      — IPC (pipe, socket...)
+# -f                — follow forks (trace child processes too)
+# -ff               — follow forks, separate output per child
+# -t                — timestamp each syscall (seconds)
+# -T                — show time SPENT in each syscall
+# -c                — count and summarize (no per-call output)
+# -o FILE           — write output to file (essential for long traces)
+# -s SIZE           — max string length to print (default 32 chars!)
+# -v                — verbose (print unabbreviated structs)
+# -x                — print all strings as hex
 
-# Find deleted files holding disk space
-lsof | grep deleted | awk '{print $2, $7, $NF}' | sort -k2 -rn
+# ── Most useful combinations ──────────────────────────────────────────
 
-# Count FDs per process
-lsof -n | awk '{print $2}' | sort | uniq -c | sort -rn | head -10
+# See only file operations (what files is this process touching?)
+strace -e trace=file -p 12345
 
-# Trace what files a process opens
-strace -e trace=file -p PID 2>&1 | grep -E "open|openat"
+# See only network operations
+strace -e trace=network -p 12345
 
-# Find process listening on port
-lsof -i :PORT -s TCP:LISTEN
+# Performance profiling: which syscalls take the most time?
+strace -c -p 12345
+# % time     seconds  usecs/call     calls    errors syscall
+# 43.21    0.123456           5     23456             futex
+# 23.45    0.067890          10      6789      123    read
+# 15.67    0.044567           2     22345             write
+# ...
 
-# Kill entire process tree
-kill -- -$(ps -o pgid= -p PID | tr -d ' ')
-```
+# Trace with timestamps (find slow syscalls):
+strace -T -e trace=read,write -p 12345
+# read(5, "data...", 4096)              = 4096 <0.000123>
+# read(5, "data...", 4096)              = 4096 <5.123456>  ← 5 second read!
+# This 5-second read is your bottleneck
 
-## Process State Quick Ref
-```
-R = Running/Runnable          → Normal, active CPU use
-S = Sleeping (interruptible)  → Normal, waiting for event
-D = Uninterruptible sleep     → ⚠️ I/O blocked — check storage!
-Z = Zombie                    → Parent hasn't called wait()
-T = Stopped                   → Ctrl+Z'd or debugger attached
+# Full string output (don't truncate):
+strace -s 4096 -e trace=write -p 12345
+
+# Follow child processes:
+strace -f ./script.sh
+
+# Write to file (trace long-running issues):
+strace -f -o /tmp/trace.txt -p 12345
+
+# ── Real debugging scenarios ──────────────────────────────────────────
+
+# Scenario 1: Process is hanging — what is it waiting for?
+strace -p <hung_pid>
+# If it shows: futex(0x..., FUTEX_WAIT, ...) = ?  → waiting for a mutex/lock
+# If it shows: read(5, ...)                        → waiting for data on fd 5
+# If it shows: epoll_wait(7, ...)                  → waiting for I/O events
+# If nothing: check /proc/PID/wchan and /proc/PID/stack
+
+# Scenario 2: Process can't find a file — which path is it trying?
+strace -e trace=openat,stat -p <pid>
+# openat(AT_FDCWD, "/etc/myapp/config.conf", O_RDONLY) = -1 ENOENT
+#                  ──────────────────────────────────          ──────
+#                  Exact path it tried                        Not found!
+
+# Scenario 3: Network connection failure
+strace -e trace=network -p <pid>
+# connect(3, {sa_family=AF_INET, sin_port=htons(5432), sin_addr=...}, 16) = -1 ECONNREFUSED
+# Shows: IP, port, and error code
+
+# Scenario 4: Permission denied — what file?
+strace -e trace=file 2>&1 ./myapp | grep "EACCES\|EPERM"
+# openat(AT_FDCWD, "/var/lib/myapp/data", O_RDWR) = -1 EACCES (Permission denied)
+
+# Scenario 5: What is causing high CPU? (find hot loops)
+strace -c -p <high_cpu_pid>
+# Look for: high call count on gettimeofday, clock_gettime (busy polling)
+# Or: futex with high error count (lock contention)
 ```
 
 ---
 
-# 🎯 Interview Cheat Sheet: Key Answers to Memorize
+## 🔷 `ltrace` — Library call tracing
 
-| Question | One-Line Answer |
-|----------|-----------------|
-| What's load average? | Average processes running OR waiting for I/O over 1/5/15 min |
-| Load average of 4 on 4-core = ? | 100% utilized — fully loaded but manageable |
-| Can you kill a zombie? | No — fix the parent or kill it so init reaps the zombie |
-| Can you kill a D-state process? | Not until it returns from I/O — SIGKILL is pending but not delivered |
-| SIGTERM vs SIGKILL | SIGTERM = polite request (catchable), SIGKILL = immediate force (uncatchable) |
-| What does SIGHUP do for daemons? | Convention: reload config file without restart |
-| What does kill -0 do? | Tests if PID exists and you have permission — sends no signal |
-| Why is "free" memory misleading? | Linux uses free RAM for cache; check "avail Mem" instead |
-| What causes high load + low CPU? | D-state processes stuck on I/O (usually storage) |
-| Disk full but du shows less? | Deleted files still open by processes — `lsof | grep deleted` |
+```bash
+# ltrace intercepts LIBRARY calls (not syscalls)
+# Shows: printf(), malloc(), fopen(), strdup(), etc.
+
+ltrace ./myprogram
+# __libc_start_main(0x400abc, 1, 0x..., 0x..., ...) = 0
+# malloc(1024)                                       = 0x55a1b4002260
+# fopen("/etc/config", "r")                          = 0x55a1b4002310
+# fgets(0x55a1b4002320, 256, 0x55a1b4002310)         = "key=value\n"
+# printf("Config loaded\n")                          = 14
+# free(0x55a1b4002260)                               = <void>
+
+# ltrace vs strace:
+# ltrace: shows LIBRARY calls (higher level, more readable)
+# strace: shows KERNEL syscalls (lower level, definitive)
+# Use ltrace first for app-level debugging
+# Use strace when ltrace isn't enough or for kernel-level issues
+
+ltrace -p 12345          # Attach to running process
+ltrace -c ./myprogram    # Summary: count and time library calls
+ltrace -l libcrypto.so.1.1 ./myprogram   # Only trace specific library
+
+# ── Practical ltrace use ──────────────────────────────────────────────
+# Find what config files an app reads:
+ltrace -e fopen,fread,fclose ./myapp 2>&1 | grep fopen
+# fopen("/etc/myapp/config.yaml", "r") = 0x...
+
+# Detect memory issues (malloc/free patterns):
+ltrace -e malloc,free,realloc ./myapp 2>&1 | grep -v "free"
+# malloc(1024) = 0x...   [without matching free = potential leak]
+```
 
 ---
 
-*📌 After reading each topic: Quiz Me / Go Deeper / Next Topic*
+## 🔷 Short crisp interview answer
+
+> "`strace` traces system calls using the `ptrace` kernel API — it shows every boundary crossing between user code and the kernel. For debugging I use `-e trace=file` to see exactly which file paths a process tries (great for permission and 'file not found' issues), `-e trace=network` for connection problems, and `-c` for a performance summary showing which syscalls dominate. `-T` shows time spent per syscall to find slow I/O. When attaching to a hanging process, I run `strace -p PID` with no filters — the first line usually reveals what it's blocked on (futex for locks, read for I/O, epoll_wait for events). `ltrace` intercepts library calls at a higher level, useful for tracing config file loading or malloc patterns. Both have significant overhead — use briefly in production."
+
+---
+
+## ⚠️ Gotchas
+
+```bash
+# GOTCHA 1: strace has 2-10x performance overhead
+# Don't attach to production processes for long periods
+# Use -c for brief summary, then detach
+# Alternative: perf trace (eBPF-based, much lower overhead)
+
+# GOTCHA 2: Default string truncation is 32 chars
+strace ./myapp 2>&1 | grep write
+# write(1, "This is my really long messag"..., 50) = 50
+#                             ──────────────────
+#                             Truncated at 32 chars!
+# Fix: strace -s 4096 ...
+
+# GOTCHA 3: ASLR and PIDs change — scripts using grep on strace output
+# Process memory addresses change each run — don't rely on them
+
+# GOTCHA 4: strace on multi-threaded processes needs -f
+strace ./multithreaded_app     # Only traces main thread!
+strace -f ./multithreaded_app  # Traces all threads and children
+
+# GOTCHA 5: ltrace doesn't work with statically linked binaries
+# or stripped binaries (no symbol table)
+ltrace ./statically-linked-binary   # No output — can't intercept
+
+# GOTCHA 6: strace changes process behavior (Heisenbug)
+# ptrace delivery changes signal timing — rare but real
+# Some programs check for tracers and behave differently:
+cat /proc/12345/status | grep TracerPid   # Non-zero = being traced
+```
+
+---
+---
+
+# 2.11 `lsof` — Open Files, Socket States, Debugging FD Leaks
+
+## 🔷 What lsof is
+
+`lsof` stands for **List Open Files**. On Linux, everything is a file — regular files, sockets, pipes, devices, directories. `lsof` shows every open file across every process on the system, making it the ultimate tool for understanding what processes are actually doing.
+
+---
+
+## 🔷 lsof output explained
+
+```bash
+lsof -p 12345
+# COMMAND  PID     USER  FD   TYPE    DEVICE  SIZE/OFF  NODE  NAME
+# python3  12345   alice cwd  DIR     253,1     4096    123   /home/alice/app
+# python3  12345   alice rtd  DIR     253,1     4096      2   /
+# python3  12345   alice txt  REG     253,1  3670016  98765   /usr/bin/python3
+# python3  12345   alice mem  REG     253,1  1234567  87654   /lib/x86_64-linux-gnu/libc.so
+# python3  12345   alice   0u CHR     136,0      0t0      3   /dev/pts/0
+# python3  12345   alice   1u CHR     136,0      0t0      3   /dev/pts/0
+# python3  12345   alice   2u CHR     136,0      0t0      3   /dev/pts/0
+# python3  12345   alice   3r REG     253,1    65536  54321   /etc/myapp/config.yaml
+# python3  12345   alice   4w REG     253,1   123456  43210   /var/log/myapp.log
+# python3  12345   alice   5u IPv4  987654      0t0    TCP    10.0.0.5:8080->1.2.3.4:54321 (ESTABLISHED)
+# python3  12345   alice   6u IPv4  876543      0t0    TCP    *:8080 (LISTEN)
+# python3  12345   alice   7u unix  0x...       0t0   12345   /tmp/myapp.sock
+
+# FD column meanings:
+# cwd  = current working directory
+# rtd  = root directory
+# txt  = program text (executable binary)
+# mem  = memory-mapped file (shared library)
+# 0u   = file descriptor 0, mode u=read+write
+#        (r=read, w=write, u=read+write)
+# 3r   = FD 3, read-only
+# 4w   = FD 4, write-only
+
+# TYPE column:
+# REG  = regular file
+# DIR  = directory
+# CHR  = character device (terminal)
+# BLK  = block device (disk)
+# FIFO = named pipe
+# IPv4 = IPv4 socket
+# IPv6 = IPv6 socket
+# unix = Unix domain socket
+```
+
+---
+
+## 🔷 Core lsof usage
+
+```bash
+# ── By process ────────────────────────────────────────────────────────
+lsof -p 12345              # All FDs for PID 12345
+lsof -p 12345,67890        # Multiple PIDs
+
+# Count open FDs for a process:
+lsof -p 12345 | wc -l
+
+# ── By user ───────────────────────────────────────────────────────────
+lsof -u alice              # All files opened by alice
+lsof -u alice -u bob       # alice OR bob
+lsof -u ^alice             # All users EXCEPT alice (^ = NOT)
+
+# ── By file / directory ───────────────────────────────────────────────
+lsof /var/log/app.log      # Who has this file open?
+lsof /var/log/             # Who has any file in this dir open?
+lsof +D /var/log/          # Recursively — who has any file under /var/log?
+
+# ── By port / network ─────────────────────────────────────────────────
+lsof -i :8080              # What is listening on port 8080?
+lsof -i :80 -i :443        # Port 80 or 443
+lsof -i TCP                # All TCP connections
+lsof -i UDP                # All UDP connections
+lsof -i TCP:8080           # TCP specifically on 8080
+lsof -i @1.2.3.4           # Connections to/from this IP
+lsof -i TCP:1024-65535     # All high ports
+
+# ── By protocol state ─────────────────────────────────────────────────
+lsof -i TCP -s TCP:LISTEN              # Only listening sockets
+lsof -i TCP -s TCP:ESTABLISHED         # Only established connections
+lsof -i TCP -s TCP:CLOSE_WAIT          # Only CLOSE_WAIT (connection leaks!)
+lsof -i TCP -s TCP:TIME_WAIT           # Only TIME_WAIT
+
+# ── lsof -n and -P (performance) ──────────────────────────────────────
+# -n = don't resolve hostnames (much faster)
+# -P = don't resolve port names (much faster)
+lsof -nP -p 12345          # Fast: no name resolution
+
+# ── Useful combinations ────────────────────────────────────────────────
+# Find what process is listening on port 80:
+lsof -nP -i TCP:80 -s TCP:LISTEN
+
+# Find all sockets opened by nginx:
+lsof -c nginx -i
+
+# Who is using a specific file (before you try to delete/move it):
+lsof /path/to/file
+
+# All network connections on the system:
+lsof -nP -i TCP -i UDP
+```
+
+---
+
+## 🔷 Debugging FD leaks
+
+```bash
+# ── Detecting a file descriptor leak ──────────────────────────────────
+
+# Step 1: Check FD count is growing
+watch -n 5 'lsof -p 12345 | wc -l'
+# If count grows without bound → FD leak
+
+# Step 2: Check against the FD limit
+FD_COUNT=$(lsof -p 12345 | wc -l)
+FD_LIMIT=$(cat /proc/12345/limits | awk '/Max open files/ {print $4}')
+echo "FDs: $FD_COUNT / $FD_LIMIT"
+# If FD_COUNT approaching FD_LIMIT → process will fail soon
+
+# Step 3: Find what's leaking
+lsof -p 12345 | sort -k 9 | uniq -c -f 8 | sort -rn | head -20
+# Shows which file paths are most frequently open
+# Many opens of same socket type → socket leak
+
+# Step 4: Look for deleted-but-open files
+lsof -p 12345 | grep deleted
+# FD 45w REG 253,1 9999999 1234 /var/log/old.log (deleted)
+# File deleted on disk but FD still open → space not freed!
+
+# ── The classic "disk full but du shows nothing" problem ───────────────
+df -h     # Shows /var is 100% full
+du -sh /var/*    # No big files found!
+# Root cause: a process has deleted files still open
+
+lsof +L1   # +L1 = show files with link count < 1 (deleted but open)
+# COMMAND  PID   USER  FD   TYPE  SIZE       NODE NAME
+# java    5678   app   23w  REG   9999999999 1234 /var/log/app.log (deleted)
+# Found it! Java has a 9GB deleted log file open
+
+# Fix: restart the process (closes the FD, OS reclaims space)
+# Or: truncate in place if you can't restart:
+> /proc/5678/fd/23    # Truncate the open FD to 0 bytes (frees space immediately!)
+
+# ── Ulimit and raising FD limits ──────────────────────────────────────
+
+# Check current limits for your session:
+ulimit -n        # Soft limit for open files
+ulimit -Hn       # Hard limit for open files
+
+# Raise limit for current session:
+ulimit -n 65536
+
+# System-wide default in /etc/security/limits.conf:
+# *    soft    nofile    65536
+# *    hard    nofile    65536
+
+# Per-service in systemd:
+# [Service]
+# LimitNOFILE=65536
+
+# Raise limit for a running process (root, Linux 3.5+):
+prlimit --nofile=65536:65536 --pid 12345
+```
+
+---
+
+## 🔷 Network debugging with lsof
+
+```bash
+# ── Replace ss/netstat with lsof for richer output ─────────────────────
+
+# What is on port 8080? (with process name and user)
+lsof -nP -i TCP:8080
+# COMMAND  PID   USER  FD  TYPE  DEVICE  SIZE/OFF  NODE  NAME
+# python3  1234  www   5u  IPv4  567890      0t0   TCP   *:8080 (LISTEN)
+
+# How many connections does nginx have?
+lsof -c nginx -i TCP | grep ESTABLISHED | wc -l
+
+# Which remote IPs are connected to my app?
+lsof -nP -i TCP:8080 -s TCP:ESTABLISHED | awk '{print $9}' | cut -d: -f1 | sort | uniq -c | sort -rn
+
+# Find TIME_WAIT connections (connection accumulation check):
+lsof -nP -i TCP -s TCP:TIME_WAIT | wc -l
+
+# Who is connecting to Redis (port 6379)?
+lsof -nP -i TCP:6379
+
+# See all UNIX domain sockets:
+lsof -U
+lsof | grep .sock    # Find specific socket files
+```
+
+---
+
+## 🔷 Short crisp interview answer
+
+> "`lsof` lists every open file descriptor across all processes — and on Linux, everything is a file: regular files, sockets, pipes, devices. `lsof -p PID` shows all FDs of a process. `lsof -i :8080` answers 'what's listening on port 8080' with the process name and user. `lsof -i TCP -s TCP:CLOSE_WAIT` finds socket leaks. For the classic 'disk full but no files found' problem I use `lsof +L1` — it finds deleted files that are still held open by processes; the disk space won't be freed until those FDs close. To detect FD leaks, I watch `lsof -p PID | wc -l` growing over time and compare against `/proc/PID/limits`."
+
+---
+
+## ⚠️ Gotchas
+
+```bash
+# GOTCHA 1: lsof is slow without -n and -P
+lsof -i           # Slow — resolves every hostname and port
+lsof -nP -i       # Fast — numeric output
+# Always use -n (no hostname lookup) -P (no port name lookup) in scripts
+
+# GOTCHA 2: lsof shows ONE row per FD, not one per file
+# A file opened with dup() appears twice
+# A mmap'd shared library appears once per mapping
+# FD count from lsof includes: txt, mem, cwd, rtd entries — not just numeric FDs
+# Compare against /proc/PID/fd/ for numeric FD count only
+ls /proc/12345/fd | wc -l   # Accurate numeric FD count
+
+# GOTCHA 3: lsof needs root for complete information
+lsof                  # Shows your own processes + some others
+sudo lsof             # Shows ALL processes' ALL file descriptors
+
+# GOTCHA 4: Deleted file space not freed until FD is closed
+lsof +L1              # Find deleted-but-open files
+# You cannot free the space without closing the FD
+# Options: restart the process, or truncate via /proc/PID/fd/N
+
+# GOTCHA 5: lsof +D is recursive but slow
+lsof +D /var/log/     # Recursively checks every file — very slow on large dirs
+lsof /var/log/        # Non-recursive — check specific files only (faster)
+```
+
+---
+---
+
+# 🏆 Category 2 — Complete Mental Model
+
+```
+PROCESS MANAGEMENT DECISION TREE
+══════════════════════════════════
+
+Problem: Something is wrong with a process
+
+├─ 1. Is the process running?
+│      ps aux | grep name
+│      pgrep -x name
+│
+├─ 2. What state is it in?
+│      ps -p PID -o stat=
+│      R=running  S=sleeping  D=DISK WAIT  Z=zombie  T=stopped
+│
+├─ 3. What is it doing?
+│      strace -p PID          → syscalls it's making
+│      lsof -p PID            → files/sockets it has open
+│      cat /proc/PID/wchan    → kernel function if sleeping
+│      cat /proc/PID/stack    → kernel stack trace
+│
+├─ 4. Is it using too much CPU?
+│      top / htop             → real-time CPU view
+│      ps -eo pid,%cpu --sort=-%cpu | head
+│      strace -c -p PID       → which syscalls dominate
+│      renice -n 10 -p PID    → lower its priority immediately
+│
+├─ 5. Is it using too much memory?
+│      grep VmRSS /proc/PID/status
+│      lsof -p PID | wc -l    → FD count (leak indicator)
+│      cat /proc/PID/smaps    → per-mapping memory breakdown
+│
+├─ 6. Is it creating too many processes/zombies?
+│      ps aux | grep Z        → find zombies
+│      ps -eo pid,ppid,stat | awk '$3~/Z/{print $2}' → find parent
+│      kill -CHLD parent_pid  → nudge parent to wait()
+│
+└─ 7. Can't kill it?
+       kill -15 PID           → SIGTERM first
+       sleep 10
+       kill -0 PID && kill -9 PID   → SIGKILL if still alive
+       cat /proc/PID/wchan    → if D state: wait for I/O or reboot
+
+TOOL QUICK REFERENCE
+════════════════════
+ps aux            → snapshot of all processes
+ps -ef            → snapshot with PPID column
+pstree -p         → visual hierarchy with PIDs
+top / htop        → real-time CPU/memory
+strace -p PID     → syscall tracing
+ltrace -p PID     → library call tracing
+lsof -p PID       → open files/sockets
+lsof -i :PORT     → what's on a port
+lsof +L1          → deleted-but-open files
+/proc/PID/status  → state, memory, PPID
+/proc/PID/fd/     → open file descriptors
+/proc/PID/wchan   → what kernel func it's sleeping in
+/proc/PID/limits  → ulimit values
+kill -l           → list all signals
+kill -0 PID       → check if process exists (no signal sent)
+renice -n 10 -p P → lower process priority live
+prlimit --nofile=65536 --pid P  → raise FD limit live
+```
+
+---
+
+## ⚠️ Master Gotcha List — Category 2
+
+| # | Gotcha | Reality |
+|---|---|---|
+| 1 | VSZ is the real memory usage | RSS is real; VSZ includes unmapped virtual space |
+| 2 | kill -9 is the first choice | Always try SIGTERM first; SIGKILL prevents cleanup |
+| 3 | D-state processes can be killed | SIGKILL is ignored in D state — wait for I/O |
+| 4 | Zombies waste memory | Zombies use NO memory/CPU — only a PID slot |
+| 5 | You can kill a zombie | Process is already dead; kill the PARENT |
+| 6 | High load = high CPU | Load includes D-state (I/O wait) — check iowait % |
+| 7 | Free memory being low = problem | Linux caches in free RAM — check `avail Mem` |
+| 8 | Background jobs survive terminal close | Without nohup/disown, SIGHUP kills them |
+| 9 | Orphans are always problems | Most daemons are intentional orphans (PPID=1) |
+| 10 | strace output is complete | Default truncates strings at 32 chars; use -s 4096 |
+| 11 | lsof is fast | Always use -n -P flags; lsof without them is very slow |
+| 12 | FD count from lsof = numeric FDs | lsof includes txt/mem/cwd entries; use /proc/PID/fd/ |
+| 13 | Disk full = find big files | Could be deleted-but-open files; use lsof +L1 |
+| 14 | Nice values affect all workloads | Nice only matters when processes COMPETE for CPU |
+| 15 | Container CPU = host CPU | cgroup throttling is invisible inside the container |
+
+---
+
+## 🔥 Top Interview Questions
+
+**Q1: What is the difference between SIGTERM and SIGKILL?**
+> SIGTERM (15) is a polite request — the process can catch it, run cleanup code (flush buffers, close connections, remove temp files), and exit cleanly. SIGKILL (9) is unconditional termination by the kernel — no handler runs, no cleanup, data may be corrupted. Always try SIGTERM first and wait for the process to exit. Only escalate to SIGKILL if SIGTERM doesn't work within a reasonable timeout. `kill -0 PID` checks if a process exists without sending a real signal.
+
+**Q2: What is a zombie process and how do you get rid of it?**
+> A zombie is a process that has exited but whose parent hasn't called `wait()` to collect its exit status. The kernel keeps the PID entry alive to preserve the exit code. Zombies consume no CPU or memory — only a PID slot. You cannot kill a zombie directly (it's already dead). To clean zombies: send SIGCHLD to the parent to trigger a `wait()` call. If that doesn't work, kill the parent — its zombies get re-parented to PID 1, which immediately reaps them. The real fix is to patch the parent application to properly call `wait()` after forking.
+
+**Q3: A process is in D state and won't die even with kill -9. Why?**
+> D (Uninterruptible Sleep) means the process is deep in a kernel code path waiting for I/O to complete — typically disk, NFS, or a kernel lock. Signals, including SIGKILL, cannot be delivered while in D state because the kernel code path cannot be safely interrupted. The process will exit D state when the I/O completes or times out. If it stays D forever, it usually means NFS is hanging or the storage device has a problem. Check `cat /proc/PID/wchan` to see which kernel function it's blocked in, and `dmesg` for I/O errors. The only reliable fix if the I/O never completes is a reboot.
+
+**Q4: How do you debug why a process is consuming high CPU?**
+```bash
+# Step 1: Confirm it's CPU (not I/O)
+top -p PID           # Check us% vs wa% in CPU breakdown
+
+# Step 2: Find which thread is hot (if multi-threaded)
+top -H -p PID        # Per-thread view
+ps -p PID -L -o pid,lwp,%cpu,comm
+
+# Step 3: What syscalls dominate?
+strace -c -p PID     # Profile: which syscalls, how many, how long
+
+# Step 4: If it's busy-looping (no blocking syscalls):
+perf top -p PID      # Show hot functions (requires perf)
+
+# Step 5: Check if it's supposed to be this busy
+cat /proc/PID/sched  # Look at nr_involuntary_switches (being preempted a lot?)
+```
+
+**Q5: How does a container CPU limit actually work under the hood?**
+> Docker `--cpus=0.5` (or Kubernetes `cpu: 500m`) sets cgroup CPU quota: `cpu.cfs_quota_us = 50000` with `cpu.cfs_period_us = 100000`. This means the container's processes can use at most 50ms of CPU per 100ms window. If they try to use more, the kernel throttles them — stops scheduling the container's processes for the remainder of that period. This throttling is invisible inside the container: `top` shows the process apparently running at a low %, not 100%. You can detect throttling by checking `nr_throttled` in `/sys/fs/cgroup/cpu/.../cpu.stat`. High throttle ratios explain "the app is slow but CPU looks fine" in container environments.
+
+**Q6: Walk me through how you'd debug a process that appears to be hanging.**
+```bash
+# Step 1: Confirm it's hanging (not just slow)
+ps -p PID -o pid,stat,wchan=   # Check state and what it's waiting for
+
+# Step 2: What state is it in?
+# D state → stuck in kernel I/O → check /proc/PID/wchan, dmesg
+# S state → sleeping → use strace to see what it's waiting for
+
+# Step 3: Attach strace
+strace -p PID    # No filter — first output line tells you what it's blocked on
+# futex() → waiting for a lock (deadlock?)
+# read()  → waiting for data (what FD? check lsof -p PID)
+# epoll_wait() → event loop, nothing to do (is this normal?)
+
+# Step 4: Check what FDs are involved
+lsof -p PID      # What files/sockets are open?
+
+# Step 5: If waiting for network:
+ss -tnp | grep PID    # Check TCP connection states
+
+# Step 6: Kernel stack for D state
+cat /proc/PID/stack   # Full kernel call stack
+```
+
+---
+
+*Document covers all 11 topics in Category 2: Process Management — from basic PID concepts through advanced scheduler internals, zombie lifecycles, and production syscall debugging.*

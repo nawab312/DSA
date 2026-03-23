@@ -301,7 +301,7 @@ cut -d' ' -f1 /var/log/nginx/access.log   # Extracts IP column
 # This FAILS with variable whitespace:
 echo "  hello   world" | cut -d' ' -f2   # Returns empty!
 # Use awk instead:
-echo "  hello   world" | awk '{print $2}'  # Returns "hello"
+echo "  hello   world" | awk '{print $1}'  # Returns "hello"
 ```
 
 ---

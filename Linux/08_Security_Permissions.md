@@ -725,6 +725,12 @@ chmod 750 file.txt  # Resets the mask to 750!
 # VFAT, FAT32: no ACL support
 # NFS: ACLs may not propagate (depends on NFS version and server)
 # tmpfs: no ACL support
+
+# GOTCHA 6: The three-step ACL pattern for shared directories:
+# Fix base permissions with find + exec chmod separately for files and dirs
+# Set ACL on existing content with find + exec setfacl
+# Always set default ACL with d: prefix for new file inheritance
+# Missing step 3 is the #1 real-world ACL mistake.
 ```
 
 ---

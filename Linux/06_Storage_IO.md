@@ -201,6 +201,8 @@ rm /var/log/app.log    # File deleted — but if nginx still has it open...
 df -h                  # Shows same usage! Space not freed.
 lsof +L1               # Lists deleted files still open
 # Fix: kill -USR1 nginx (triggers log reopen) OR restart the process
+# Fix without restart: > /proc/PID/fd/N  — truncates via live fd directly;
+# inode stays valid from process's perspective, no crash needed
 
 # GOTCHA 2: Inode exhaustion with space available
 df -h    # Shows 40% used — looks fine
@@ -221,6 +223,11 @@ du -sh --one-file-system /    # Stays on one filesystem only
 df -h       # Shows 100% for users
 # Root user can still write — 5% blocks reserved by default for ext4
 # Tune: tune2fs -m 1 /dev/sda1   (reduce to 1%)
+
+# GOTCHA 6: du vs df discrepancy has exactly two root causes — always check both:
+# lsof +L1 for deleted-but-open files
+# df -i for inode exhaustion
+# These are the two diagnostic commands to run before anything else when du and df disagree.
 ```
 
 ---

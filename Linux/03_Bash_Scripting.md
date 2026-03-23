@@ -1740,6 +1740,11 @@ cat nonexistent_file | grep "pattern" | wc -l
 set +o pipefail
 grep "optional_pattern" file | head -5  # grep might return 1 if no match
 set -o pipefail
+
+# The pipe silent failure pattern — most common CI/CD bug:
+cat file | python3 process.py   # cat failure is hidden!
+python3 process.py < file       # safer — no pipe, no hiding
+# Always prefer input redirection over pipes when the left-hand command's failure matters.
 ```
 
 ---
@@ -2469,6 +2474,13 @@ run systemctl restart app
 
 # 14. Log all commands in debug mode
 [[ "${DEBUG:-false}" == "true" ]] && set -x
+
+# 15. CI/CD deployment script checklist:
+# set -euo pipefail + IFS=$'\n\t' at top
+# Validate all required env vars with :"${VAR:?message}"
+# flock for deploy locking
+# trap 'cleanup' EXIT for guaranteed cleanup
+# All error messages to >&2
 ```
 
 ---

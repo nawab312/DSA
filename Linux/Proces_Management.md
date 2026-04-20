@@ -123,6 +123,11 @@ ps -eo pid,ppid,stat,cmd | grep '^.*Z'
 # 1251  1200  Z+   [myapp] <defunct>
 # Parent is PID 1200 — that's the buggy process
 ```
+  - How to fix:
+    - Fix the parent — the parent process has a bug. It's not calling `wait()` or `waitpid()` on its children. Fix the code.
+    - Kill the parent — if you kill the parent (PID 1200), all its zombie children become orphans. They get re-parented to PID 1 (systemd). systemd always calls wait() on adopted children, so the zombies are cleaned up.
+    - You CANNOT kill a zombie directly — `kill -9 <zombie_pid>` does nothing because the process is already dead. There's nothing to kill. You must fix or kill the parent.
+  - In containers: If your app is PID 1 and it spawns children without waiting, zombies accumulate with no systemd to clean them up. Use tini as PID 1 to reap zombies automatically.
 - **T — Stopped** — paused by a signal (SIGSTOP or SIGTSTP from Ctrl+Z). The process is frozen in memory. It can be resumed with SIGCONT (`fg` command).
 - **I — Idle** — kernel thread waiting for work. You'll see this for kernel worker threads. Not relevant for application debugging.
 
@@ -147,3 +152,13 @@ N — low priority (nice value > 0)
 ```
 
 So `Ssl` means: sleeping + session leader + multi-threaded. This is typical for a daemon like nginx or postgres.
+
+---
+
+### Orphan processes
+When a parent exits before its children, the children become orphans. The kernel re-parents them to PID 1 (systemd). systemd adopts them and cleans them up when they exit.
+Orphans are not a problem — systemd handles them. Zombies are the problem — they need the original parent to call `wait()`.
+
+---
+
+

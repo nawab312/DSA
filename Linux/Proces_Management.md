@@ -161,4 +161,219 @@ Orphans are not a problem — systemd handles them. Zombies are the problem — 
 
 ---
 
+### File descriptors — what processes carry with them
+Every process has a table of file descriptors (fds) — integers that point to open files, sockets, pipes, or devices.
+```
+fd 0 — stdin  (standard input)
+fd 1 — stdout (standard output)
+fd 2 — stderr (standard error)
+fd 3+ — any other open files, sockets, connections
+```
+
+**fd leaks** — if your application opens files or sockets and never closes them, fd count grows. Eventually it hits the limit (`ulimit -n`, typically 1024 or 65535) and the process can't open new connections. This is a very common production issue — "too many open files" error.
+
+```bash
+# Count open fds for a process
+ls /proc/<pid>/fd | wc -l
+
+# See what each fd points to
+ls -la /proc/<pid>/fd
+# lrwx------ 1 root root 64 ... 0 -> /dev/pts/0        (stdin)
+# lrwx------ 1 root root 64 ... 1 -> /dev/pts/0        (stdout)
+# lrwx------ 1 root root 64 ... 2 -> /dev/pts/0        (stderr)
+# lrwx------ 1 root root 64 ... 3 -> socket:[12345]    (network conn)
+# lr-x------ 1 root root 64 ... 4 -> /var/log/app.log  (log file)
+
+# Check fd limits
+ulimit -n          # soft limit for current shell
+cat /proc/<pid>/limits  # limits for a specific process
+
+# System-wide fd usage
+cat /proc/sys/fs/file-nr
+# output: 1234   0   65535
+#         used   free  max
+```
+
+**Inheritance** — when fork() creates a child, the child inherits all parent's file descriptors. This is how pipes work — parent creates a pipe, forks, child inherits the pipe fd.
+
+---
+
+### /proc filesystem — the kernel's window
+`/proc` is a virtual filesystem that exposes kernel and process information as files. Nothing in `/proc` is stored on disk — it's generated on the fly by the kernel.
+
+Per-process information at `/proc/<pid>/`:
+```
+/proc/<pid>/status    # process status (name, state, PID, memory, threads)
+/proc/<pid>/cmdline   # exact command line that started the process
+/proc/<pid>/environ   # environment variables
+/proc/<pid>/fd/       # directory of open file descriptors
+/proc/<pid>/maps      # memory mappings (shared libraries, heap, stack)
+/proc/<pid>/stat      # raw stats (CPU time, state, priority)
+/proc/<pid>/io        # I/O statistics (bytes read/written)
+/proc/<pid>/limits    # resource limits (max fds, max memory, etc.)
+/proc/<pid>/cgroup    # which cgroups the process belongs to
+/proc/<pid>/net/      # network info from this process's namespace
+/proc/<pid>/smaps     # detailed memory map (RSS per mapping)
+```
+
+System-wide information:
+```
+/proc/meminfo         # system memory stats (MemTotal, MemFree, Buffers, Cached)
+/proc/cpuinfo         # CPU details (model, cores, frequency)
+/proc/loadavg         # load average (1, 5, 15 minute)
+/proc/uptime          # system uptime in seconds
+/proc/sys/            # tunable kernel parameters
+/proc/sys/fs/file-max # max open file descriptors system-wide
+/proc/sys/kernel/pid_max  # max PID number
+/proc/sys/net/        # network tuning parameters
+```
+
+When an interviewer asks "how would you investigate a process," your answer should reference /proc. It shows you understand how Linux exposes process information at the kernel level, not just via wrapper tools.
+
+---
+
+### Process priority and nice values
+Linux uses the Completely Fair Scheduler (CFS) to decide which process gets CPU time. Each process has a nice value from -20 (highest priority) to +19 (lowest priority). Default is 0.
+
+```bash
+# Start a process with low priority (nice = 10)
+nice -n 10 ./my_batch_job
+
+# Change priority of a running process
+renice -n 5 -p <pid>
+
+# See nice values
+ps -eo pid,ni,comm
+# PID  NI COMMAND
+# 500   0 nginx
+# 600  10 backup_job
+# 700  -5 database
+
+# Only root can set negative nice values (higher priority)
+```
+
+---
+
+### Key process commands — your debugging toolkit
+```bash
+
+# ── LIST PROCESSES ──
+ps aux                    # all processes with CPU/memory usage
+ps -ef                    # all processes with PPID (parent PID)
+ps aux --sort=-%cpu       # sort by CPU usage (highest first)
+ps aux --sort=-%mem       # sort by memory usage
+ps -eo pid,ppid,stat,ni,%cpu,%mem,cmd  # custom columns
+
+# ── REAL-TIME MONITORING ──
+top                       # live process monitor
+  press 1                 # show per-CPU utilization
+  press M                 # sort by memory
+  press P                 # sort by CPU
+  press k                 # kill a process by PID
+htop                      # better version of top (install it)
+
+# ── FIND SPECIFIC PROCESSES ──
+pgrep nginx               # find PIDs of nginx processes
+pgrep -a nginx            # find PIDs with full command line
+pidof nginx               # same but different tool
+
+# ── PROCESS TREE ──
+pstree                    # show process hierarchy as a tree
+pstree -p                 # with PIDs
+pstree -p 1               # tree starting from PID 1
+
+# ── SIGNALS ──
+kill <pid>                # send SIGTERM (graceful stop)
+kill -9 <pid>             # send SIGKILL (force kill)
+kill -HUP <pid>           # send SIGHUP (reload config)
+killall nginx             # kill all processes named nginx
+pkill -f "python app.py"  # kill by command line pattern
+
+# ── PROCESS DETAILS ──
+cat /proc/<pid>/status    # detailed status
+cat /proc/<pid>/cmdline | tr '\0' ' '   # full command
+ls /proc/<pid>/fd | wc -l  # count open file descriptors
+lsof -p <pid>             # all files/sockets open by process
+
+# ── TRACING ──
+strace -p <pid>           # trace system calls live
+strace -c -p <pid>        # summarize system calls (count, time)
+strace -e open,read,write -p <pid>  # trace specific syscalls only
+
+# ── BACKGROUND JOBS ──
+./script.sh &             # run in background
+jobs                      # list background jobs
+fg %1                     # bring job 1 to foreground
+bg %1                     # resume job 1 in background
+nohup ./script.sh &       # run in background, survive terminal close
+disown %1                 # detach job from terminal
+```
+
+---
+
+### cgroups — how Linux limits processes (critical for containers)
+cgroups (control groups) allow you to limit and track resource usage for groups of processes. This is the foundation of container resource limits.
+
+What cgroups control:
+```
+cpu        — CPU time allocation
+memory     — memory usage limits (OOMKill happens here)
+io         — disk I/O bandwidth
+pids       — max number of processes
+cpuset     — which CPUs the process can use
+```
+
+How Kubernetes uses cgroups:
+```yaml
+resources:
+  requests:
+    cpu: "500m"        # 0.5 CPU cores — used for scheduling
+    memory: "256Mi"    # 256 MB — used for scheduling
+  limits:
+    cpu: "1000m"       # 1 CPU core — enforced by cgroup
+    memory: "512Mi"    # 512 MB — enforced by cgroup (OOMKill if exceeded)
+```
+
+Kubernetes tells the container runtime to create a cgroup with these limits. If the container exceeds the memory limit, the kernel's cgroup(your container uses the host’s kernel. It does NOT have its own kernel.) OOM killer terminates it — that's the `OOMKilled` status you see in `kubectl describe pod`.
+
+<img width="594" height="742" alt="image" src="https://github.com/user-attachments/assets/7ccd36e4-77d8-42c0-9ff4-0a138c075273" />
+
+Checking cgroups for a process:
+```bash
+# Which cgroups does this process belong to?
+cat /proc/<pid>/cgroup
+
+# cgroup v2 memory limit
+cat /sys/fs/cgroup/<group>/memory.max
+
+# Current memory usage
+cat /sys/fs/cgroup/<group>/memory.current
+
+# CPU quota
+cat /sys/fs/cgroup/<group>/cpu.max
+```
+
+---
+
+### Namespaces — how Linux isolates processes (containers)
+While cgroups limit how much a process can use, namespaces limit what a process can see. Namespaces are the other half of container isolation.
+
+<img width="692" height="411" alt="image" src="https://github.com/user-attachments/assets/21230d60-77b7-418d-9775-543be97c52c1" />
+
+```bash
+# On the host, your container process might be PID 5432
+# Inside the container, the same process sees itself as PID 1
+
+# Host view:
+ps aux | grep myapp
+# root  5432  myapp
+
+# Container view (exec into container):
+ps aux
+# PID  USER  COMMAND
+#   1  root  myapp     ← same process, different PID
+```
+
+A VM virtualizes the entire hardware — it runs a complete OS kernel. A container uses the host kernel and isolates processes using Linux namespaces (what the process can see) and cgroups (how much resources it can use). Containers are lighter (no guest kernel overhead), start faster (no boot sequence), and share the host kernel. VMs are more isolated (separate kernel = stronger security boundary). Containers share the kernel, so a kernel vulnerability affects all containers on the host
+
 

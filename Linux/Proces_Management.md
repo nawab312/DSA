@@ -25,6 +25,78 @@ What kernel actually does:
 
 Step 1: fork() — the parent process creates an exact copy of itself. Now there are two identical processes — parent and child. They have the same code, same memory contents, same open files. The only difference is the return value of `fork():` parent gets the child's PID, child gets 0.
 
+**os.fork()**
+
+- `os.fork()` is a Unix system call that creates a copy of the current process.
+```python
+import os
+
+x = 100  # variable in parent
+
+pid = os.fork()  # parent gets copied HERE
+
+if pid == 0:
+    print(f"CHILD  - pid={os.getpid()}, x={x}")
+else:
+    print(f"PARENT - pid={os.getpid()}, x={x}")
+```
+
+```
+Output
+
+PARENT - pid=1000, x=100
+CHILD  - pid=1001, x=100
+```
+- The child got `x = 100` without you passing it anywhere. No function argument, no shared memory, no import. It just came along because the entire process was copied.
+- Now modify x in child — parent is unaffected
+```python
+import os
+
+x = 100
+
+pid = os.fork()
+
+if pid == 0:
+    x = 999  # child changes x
+    print(f"CHILD  - x={x}")  # 999
+else:
+    import time
+    time.sleep(0.1)
+    print(f"PARENT - x={x}")  # still 100
+```
+- The parent process is your Python interpreter itself
+- When you run a script `python3 myscript.py`, Your OS does this:
+```
+Your Terminal (bash)
+    └── spawns → Python interpreter (PID 1000)
+                      └── loads and runs myscript.py
+```
+- `os.fork()` returns twice: once in each process, with different values.
+```
+os.fork() called
+       │
+  ─────┴──────────────
+  │                  │
+Parent            Child
+returns           returns
+Child's PID         0
+(e.g. 1001)
+```
+
+```python
+import os
+
+ret = os.fork()
+
+print(f"PID={os.getpid()}, os.fork() returned → {ret}")
+```
+```
+Output
+
+PID=1000, os.fork() returned → 1001   ← parent got child's PID
+PID=1001, os.fork() returned → 0      ← child always gets 0
+```
+
 Step 2: exec() — the child process replaces itself with a new program. The child's memory, code, and stack are wiped and replaced with the new program. The PID stays the same.
 
 Example: what happens when you type `ls` in your terminal:
